@@ -219,7 +219,7 @@ export default function SettingsModal({
   user: AuthUser
   onUserChanged: (user: AuthUser) => void
   dark: boolean
-  onToggleDark: () => void
+  onToggleDark: (origin?: { x: number; y: number }) => void
   ticketCount: number
   userCount: number
   onLogout: () => void
@@ -763,22 +763,27 @@ export default function SettingsModal({
                       label="主题"
                       desc="浅色 / 深色，与侧边栏切换同步"
                       control={
-                        <span className="flex w-56 rounded-full bg-[#E8E8E8] p-0.5 dark:bg-[#101010]">
+                        <span className="relative flex w-56 rounded-full bg-[#E8E8E8] p-0.5 dark:bg-[#101010]">
+                          <span
+                            className={`absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-full bg-white shadow-sm transition-transform duration-200 ease-out dark:bg-[#2A2A2A] ${
+                              dark ? 'translate-x-full' : 'translate-x-0'
+                            }`}
+                          />
                           <button
-                            onClick={() => dark && onToggleDark()}
-                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium ${
+                            onClick={(e) => dark && onToggleDark({ x: e.clientX, y: e.clientY })}
+                            className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium ${
                               !dark
-                                ? 'bg-white text-[#0A0A0A] shadow-sm dark:bg-[#2A2A2A] dark:text-[#F5F5F5]'
+                                ? 'text-[#0A0A0A] dark:text-[#F5F5F5]'
                                 : 'text-[#737373] dark:text-[#A3A3A3]'
                             }`}
                           >
                             <Icon name="sun" size={14} /> 浅色
                           </button>
                           <button
-                            onClick={() => !dark && onToggleDark()}
-                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium ${
+                            onClick={(e) => !dark && onToggleDark({ x: e.clientX, y: e.clientY })}
+                            className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium ${
                               dark
-                                ? 'bg-white text-[#0A0A0A] shadow-sm dark:bg-[#2A2A2A] dark:text-[#F5F5F5]'
+                                ? 'text-[#0A0A0A] dark:text-[#F5F5F5]'
                                 : 'text-[#737373] dark:text-[#A3A3A3]'
                             }`}
                           >

@@ -14,6 +14,53 @@ import {
 import { Avatar, AvatarStack } from './Avatar'
 import TokenChart from './TokenChart'
 import Icon from './Icon'
+import { Menu } from './Menu'
+import type { MenuItemDef } from './Menu'
+import { StatusIcon } from './StatusIcon'
+import { PRIORITY_BADGE } from './TicketCard'
+import {
+  GENIE_DURATION_MS,
+  bandMatrix,
+  genieBandCount,
+  genieDistances,
+  genieSteps,
+  rangeEase,
+  rewriteCloneIds,
+  smoothstep,
+  uniqueId,
+} from '../lib/genie'
+
+/** Field trigger button (original drawer field): bordered box showing the
+ * current value with an icon, opening a w-220px menu. */
+function DrawerField({
+  label,
+  anchorRef,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  anchorRef: React.RefObject<HTMLButtonElement | null>
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">{label}</span>
+      <button
+        ref={anchorRef}
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className="flex w-full items-center gap-2 rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#262626] hover:bg-[#F7F7F7] disabled:opacity-50 dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
+        <Icon name="chevronDown" size={14} className="shrink-0 text-[#A3A3A3]" />
+      </button>
+    </div>
+  )
+}
 
 export default function TicketDrawer({
   ticketId,
@@ -58,26 +105,49 @@ export default function TicketDrawer({
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuClosing, setMenuClosing] = useState(false)
   const [copied, setCopied] = useState('')
+  // Field menus (original: icon/color-block dropdowns, w-220px; assignee
+  // menu has checkboxes + 18px avatars).
+  const [openFieldMenu, setOpenFieldMenu] = useState<string | null>(null)
+  const statusBtnRef = useRef<HTMLButtonElement>(null)
+  const priorityBtnRef = useRef<HTMLButtonElement>(null)
+  const projectBtnRef = useRef<HTMLButtonElement>(null)
+  const assigneeBtnRef = useRef<HTMLButtonElement>(null)
 
-  // Slide-in from the right edge (250ms ease-out): the drawer mounts first,
-  // then animates in on the next frames; closing slides it back out and
-  // only then tells the parent to clear the ticket id.
+  // Genie open/close (ported from the original's ticket-detail modal):
+  // the panel is cloned, sliced into horizontal bands and warped with a
+  // matrix3d funnel toward a point just outside its bottom-right corner
+  // over 480ms. `closing` starts the reverse warp; the parent only clears
+  // the ticket id once the warp finishes, so the panel never pops out
+  // mid-animation. `entered` flips when the open warp finishes and gates
+  // the token-chart reveal (clip-path) via [data-entered] in CSS.
   const [mounted, setMounted] = useState(false)
-  const [visible, setVisible] = useState(false)
-  const closeTimer = useRef<number | null>(null)
+  const [entered, setEntered] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const genieRef = useRef<HTMLDivElement | null>(null)
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const bandsRef = useRef<HTMLDivElement | null>(null)
+  const shadowRef = useRef<HTMLDivElement | null>(null)
+  // Current genie progress: 1 = fully genied (collapsed sliver at the
+  // bottom-right corner), 0 = full panel. Survives interruption so a
+  // reversed animation resumes from where the last one stopped.
+  const progressRef = useRef(1)
   const menuTimer = useRef<number | null>(null)
+  const [reducedMotion] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  )
 
   useEffect(() => {
     if (ticketId != null) {
       setMounted(true)
-      const raf = requestAnimationFrame(() =>
-        requestAnimationFrame(() => setVisible(true)),
-      )
-      return () => cancelAnimationFrame(raf)
+      setClosing(false)
+      setEntered(false)
+    } else {
+      setMounted(false)
+      setClosing(false)
+      setEntered(false)
     }
-    setMounted(false)
-    setVisible(false)
-    return undefined
   }, [ticketId])
 
   // Seed the drawer from the board payload during render (React's
@@ -97,9 +167,8 @@ export default function TicketDrawer({
   }
 
   function handleClose() {
-    if (closeTimer.current) window.clearTimeout(closeTimer.current)
-    setVisible(false)
-    closeTimer.current = window.setTimeout(() => onClose(), 250)
+    if (closing) return
+    setClosing(true)
   }
 
   function closeMenu() {
@@ -121,6 +190,198 @@ export default function TicketDrawer({
     return () => document.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuOpen])
+
+  // Genie driver — a close port of the original's `rz` effect (see
+  // lib/genie.ts for the math). The live surface is hidden while the warp
+  // plays; the bands show a frozen clone of it, so real content is on
+  // screen from the first frame and nothing ever flashes blank.
+  useEffect(() => {
+    if (!mounted || ticketId == null) return
+    const genieEl = genieRef.current
+    const surfaceEl = surfaceRef.current
+    const bandsEl = bandsRef.current
+    const shadowEl = shadowRef.current
+    if (!genieEl || !surfaceEl || !bandsEl || !shadowEl) return
+
+    if (reducedMotion) {
+      genieEl.dataset.entered = 'true'
+      setEntered(true)
+      surfaceEl.style.opacity = '1'
+      shadowEl.style.opacity = '1'
+      shadowEl.style.transform = 'none'
+      bandsEl.replaceChildren()
+      progressRef.current = 0
+      return
+    }
+
+    let cancelled = false
+    let outerRaf = 0
+    let innerRaf = 0
+    const anims: Animation[] = []
+    const from = progressRef.current
+    const to = closing ? 1 : 0
+
+    const run = async () => {
+      if (cancelled) return
+      const panelW = surfaceEl.offsetWidth
+      const panelH = surfaceEl.offsetHeight
+      if (!panelW || !panelH) return
+      const { distX, distY } = genieDistances(genieEl.getBoundingClientRect())
+
+      // Clone the live panel; freeze its inner animations/transitions,
+      // rewrite ids, preserve the chart's computed clip-path and the
+      // scroll positions of scrolled containers.
+      const clone = surfaceEl.cloneNode(true) as HTMLElement
+      rewriteCloneIds(clone, uniqueId('genie'))
+      const origNodes = [surfaceEl, ...surfaceEl.querySelectorAll('*')]
+      const cloneNodes = [clone, ...clone.querySelectorAll('*')]
+      cloneNodes.forEach((el, idx) => {
+        const node = el as HTMLElement
+        node.style.animation = 'none'
+        node.style.transition = 'none'
+        node.style.backdropFilter = 'none'
+        const orig = origNodes[idx] as HTMLElement | undefined
+        if (orig?.classList.contains('animate-chart-reveal')) {
+          node.style.clipPath = getComputedStyle(orig).clipPath
+        }
+        if (orig && orig.scrollTop) node.dataset.genieScroll = String(orig.scrollTop)
+      })
+      clone.style.opacity = '1'
+      clone.style.transform = 'none'
+      clone.style.filter = 'none'
+      // Opening drops the chart from the clone (original behaviour — the
+      // chart reveals on the live surface afterwards); closing keeps it.
+      if (!closing) {
+        clone.querySelectorAll('svg.token-chart-svg').forEach((n) => n.remove())
+      }
+
+      // Slice the clone into horizontal bands.
+      const count = genieBandCount(panelH)
+      const frag = document.createDocumentFragment()
+      const bands: { element: HTMLDivElement; top: number; bottom: number }[] = []
+      for (let i = 0; i < count; i++) {
+        const top = (panelH * i) / count
+        const bottom = Math.min(panelH, (panelH * (i + 1)) / count + 0.5)
+        const band = document.createElement('div')
+        band.className = 'genie-band'
+        band.style.width = `${panelW}px`
+        band.style.height = `${bottom - top}px`
+        band.style.transform = bandMatrix(panelW, panelH, top, bottom, distX, distY, from)
+        const inner = clone.cloneNode(true) as HTMLElement
+        rewriteCloneIds(inner, uniqueId(`genie-band-${i}`))
+        Object.assign(inner.style, {
+          position: 'absolute',
+          width: `${panelW}px`,
+          height: `${panelH}px`,
+          top: `${-top}px`,
+          left: '0',
+        })
+        band.append(inner)
+        frag.append(band)
+        bands.push({ element: band, top, bottom })
+      }
+      bandsEl.replaceChildren(frag)
+      bandsEl.querySelectorAll('[data-genie-scroll]').forEach((el) => {
+        ;(el as HTMLElement).scrollTop = Number((el as HTMLElement).dataset.genieScroll)
+      })
+      if (cancelled) return
+      // Opening waits two frames after the bands are in place so the
+      // browser paints them at their initial warp before the WAAPI
+      // animations take over (original); closing starts immediately.
+      if (!closing) {
+        bandsEl.style.opacity = '0.001'
+        await new Promise<void>((resolve) => {
+          innerRaf = requestAnimationFrame(() => {
+            innerRaf = requestAnimationFrame(() => resolve())
+          })
+        })
+        if (cancelled) return
+      }
+      surfaceEl.style.opacity = '0'
+      bandsEl.style.opacity = '1'
+      const steps = genieSteps(from, to)
+      for (const { element, top, bottom } of bands) {
+        anims.push(
+          element.animate(
+            steps.map((p) => ({
+              transform: bandMatrix(panelW, panelH, top, bottom, distX, distY, p),
+            })),
+            { duration: GENIE_DURATION_MS, fill: 'both', easing: 'linear' },
+          ),
+        )
+      }
+      const bandsOpacity = bandsEl.animate(
+        steps.map((p) => ({ opacity: String(1 - rangeEase(0.94, 1, p)) })),
+        { duration: GENIE_DURATION_MS, fill: 'both', easing: 'linear' },
+      )
+      anims.push(bandsOpacity)
+      const shadowAnim = shadowEl.animate(
+        steps.map((p) => ({
+          transform: `translate(${distX * rangeEase(0, 0.72, p)}px, ${distY * rangeEase(0, 0.42, p)}px) scale(${1 - 0.65 * rangeEase(0, 0.72, p)}, ${1 - 0.9 * rangeEase(0.32, 1, p)})`,
+          opacity: String(1 - rangeEase(0.08, 0.72, p)),
+        })),
+        { duration: GENIE_DURATION_MS, fill: 'both', easing: 'linear' },
+      )
+      anims.push(shadowAnim)
+      try {
+        await shadowAnim.finished
+      } catch {
+        return // cancelled
+      }
+      if (cancelled) return
+      progressRef.current = to
+      if (!closing) {
+        genieEl.dataset.entered = 'true'
+        setEntered(true)
+        surfaceEl.style.opacity = '1'
+        shadowEl.style.opacity = '1'
+        shadowEl.style.transform = 'none'
+        bandsEl.style.opacity = '0'
+        bandsEl.replaceChildren()
+        anims.forEach((a) => a.cancel())
+      } else {
+        onClose()
+      }
+    }
+
+    if (closing) {
+      void run()
+    } else {
+      outerRaf = requestAnimationFrame(() => {
+        outerRaf = requestAnimationFrame(() => {
+          void run()
+        })
+      })
+    }
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(outerRaf)
+      cancelAnimationFrame(innerRaf)
+      const clock = anims.find((a) => a.playState === 'running' || a.playState === 'paused')
+      if (clock) {
+        progressRef.current =
+          from + (to - from) * smoothstep(Number(clock.currentTime ?? 0) / GENIE_DURATION_MS)
+      }
+      anims.forEach((a) => a.cancel())
+      bandsEl.replaceChildren()
+    }
+    // The driver intentionally re-runs only on mount / open-close flips
+    // (original deps: [exiting, reducedMotion]) — a ticket swap while open
+    // just swaps the live content in place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, closing, reducedMotion])
+
+  // Esc closes the drawer (original: React Aria modal dismiss). The "..."
+  // menu has its own Esc handler and runs first when it is open.
+  useEffect(() => {
+    if (!mounted) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !menuOpen) handleClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, menuOpen, closing])
 
   function formatRelative(iso: string): string {
     const d = new Date(iso)
@@ -277,23 +538,64 @@ export default function TicketDrawer({
   const project = projects.find((p) => p.id === ticket?.project_id)
   const creator = users[0]
 
+  const toggleFieldMenu = (name: string) => () => setOpenFieldMenu((cur) => (cur === name ? null : name))
+  const statusMenuItems: MenuItemDef[] = (Object.keys(STATUS_LABELS) as TicketStatus[]).map((s) => ({
+    id: s,
+    label: STATUS_LABELS[s],
+    icon: <StatusIcon status={s} className="text-[#8A8A8A] dark:text-[#A3A3A3]" />,
+    selected: ticket?.status === s,
+    onSelect: () => void patch({ status: s }),
+  }))
+  const priorityMenuItems: MenuItemDef[] = (Object.keys(PRIORITY_LABELS) as Priority[]).map((p) => ({
+    id: p,
+    label: (
+      <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${PRIORITY_BADGE[p]}`}>{PRIORITY_LABELS[p]}</span>
+    ),
+    selected: ticket?.priority === p,
+    onSelect: () => void patch({ priority: p }),
+  }))
+  const projectMenuItems: MenuItemDef[] = projects.map((p) => ({
+    id: p.id,
+    label: p.name,
+    icon: <Icon name="folder" size={16} />,
+    selected: ticket?.project_id === p.id,
+    onSelect: () => void patch({ project_id: p.id }),
+  }))
+  const assigneeMenuItems: MenuItemDef[] = users.map((u) => ({
+    id: u.id,
+    label: u.name,
+    avatarUser: u,
+    checked: ticket?.assignee_ids.includes(u.id) ?? false,
+    keepOpen: true,
+    onSelect: () => {
+      const ids = ticket?.assignee_ids ?? []
+      const next = ids.includes(u.id) ? ids.filter((id) => id !== u.id) : [...ids, u.id]
+      void patch({ assignee_ids: next })
+    },
+  }))
+
   return (
     <div className="fixed inset-0 z-50">
       {/* Light veil (fade ~200ms): the board behind fades but its columns
           stay visible — not a dark blackout. Click / Esc / × closes. */}
       <div
-        className={`absolute inset-0 bg-white/65 dark:bg-black/45 ${visible ? 'anim-fade-in' : 'anim-fade-out'}`}
+        className={`absolute inset-0 bg-white/65 dark:bg-black/45 ${closing ? 'anim-fade-out' : 'anim-fade-in'}`}
         onClick={handleClose}
       />
-      {/* Floating panel (measured from the original: x=1298..1906,
-          y=12..985 on 1919x998): inset ~12px top/right/bottom, ~18px
-          radius, soft shadow on the left edge. Straight slide-in/out,
-          constant width — no genie morph, no curved path. */}
-      <aside
-        className={`absolute bottom-3 right-3 top-3 flex w-full max-w-[620px] flex-col overflow-hidden rounded-[18px] border border-[#E7EAEC] bg-white shadow-[-16px_0_48px_-12px_rgba(0,0,0,0.18)] dark:border-[#2E2E2E] dark:bg-[#171717] dark:shadow-[-16px_0_48px_-12px_rgba(0,0,0,0.6)] ${
-          visible ? 'anim-drawer-in' : 'anim-drawer-out'
-        }`}
+      {/* Genie root: the positioned panel slot (original Modal: h-full
+          w-full max-w-[609px] inside a p-3 overlay, rounded-3xl). Inside
+          it the shadow, the live surface and the warp bands — the bands
+          clone the surface and warp it toward the bottom-right corner
+          while the live surface stays hidden, so content is present from
+          frame one and never flashes blank. */}
+      <div
+        ref={genieRef}
+        data-entered={entered}
+        className="genie-root absolute bottom-3 right-3 top-3 w-full max-w-[609px]"
       >
+        <div ref={shadowRef} aria-hidden className="genie-shadow" />
+        <div ref={surfaceRef} className="genie-surface">
+          <aside className="flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-[#E7EAEC] bg-white dark:border-[#2E2E2E] dark:bg-[#171717]">
         <div className="flex items-center gap-1 border-b border-[#EBEBEB] px-5 py-3 dark:border-[#262626]">
           <span className="min-w-0 flex-1 truncate text-sm text-[#737373] dark:text-[#A3A3A3]">
             BoardUI 设计任务 <span className="mx-0.5">›</span> {ticket ? ticket.code : '…'}
@@ -338,7 +640,7 @@ export default function TicketDrawer({
             {menuOpen && ticket && (
               <>
                 <span className="fixed inset-0 z-10" onClick={closeMenu} />
-                <span className={`absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg border border-[#E5E5E5] bg-white py-1 shadow-lg dark:border-[#2E2E2E] dark:bg-[#202020] ${
+                <span className={`absolute right-0 top-8 z-20 w-[220px] overflow-hidden rounded-[14px] border border-[#E5E5E5] bg-white p-1 shadow-lg dark:border-[#2E2E2E] dark:bg-[#202020] ${
                   menuClosing ? 'anim-pop-out' : 'anim-pop-in'
                 }`}>
                   <button
@@ -346,7 +648,7 @@ export default function TicketDrawer({
                       closeMenu()
                       setEditing(true)
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+                    className="block w-full rounded-[10px] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
                     编辑描述
                   </button>
@@ -355,7 +657,7 @@ export default function TicketDrawer({
                       closeMenu()
                       void copyText(ticket.code, '票据 ID 已复制')
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+                    className="block w-full rounded-[10px] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
                     复制票据 ID
                   </button>
@@ -364,7 +666,7 @@ export default function TicketDrawer({
                       closeMenu()
                       void patch({ status: 'done' })
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+                    className="block w-full rounded-[10px] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
                     标记为已完成
                   </button>
@@ -373,7 +675,7 @@ export default function TicketDrawer({
                       closeMenu()
                       setConfirmDelete(true)
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                    className="block w-full rounded-[10px] px-2 py-1.5 text-left text-[13px] text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
                   >
                     删除票据
                   </button>
@@ -445,53 +747,25 @@ export default function TicketDrawer({
                 )}
               </div>
 
-              {/* Fields */}
+              {/* Fields — custom menus (original: icon/color-block dropdowns,
+                  w-220px; assignee menu has checkboxes + 18px avatars). */}
               <div className="grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">状态</span>
-                  <select
-                    value={ticket.status}
-                    disabled={saving}
-                    onChange={(e) => void patch({ status: e.target.value as TicketStatus })}
-                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-                  >
-                    {(Object.keys(STATUS_LABELS) as TicketStatus[]).map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">优先级</span>
-                  <select
-                    value={ticket.priority}
-                    disabled={saving}
-                    onChange={(e) => void patch({ priority: e.target.value as Priority })}
-                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-                  >
-                    {(Object.keys(PRIORITY_LABELS) as Priority[]).map((p) => (
-                      <option key={p} value={p}>
-                        {PRIORITY_LABELS[p]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">项目</span>
-                  <select
-                    value={ticket.project_id}
-                    disabled={saving}
-                    onChange={(e) => void patch({ project_id: e.target.value })}
-                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <DrawerField label="状态" anchorRef={statusBtnRef} disabled={saving} onClick={toggleFieldMenu('status')}>
+                  <StatusIcon status={ticket.status} className="shrink-0 text-[#8A8A8A] dark:text-[#A3A3A3]" />
+                  <span className="truncate">{STATUS_LABELS[ticket.status]}</span>
+                </DrawerField>
+                <Menu open={openFieldMenu === 'status'} onClose={() => setOpenFieldMenu(null)} anchorRef={statusBtnRef} width={220} items={statusMenuItems} />
+                <DrawerField label="优先级" anchorRef={priorityBtnRef} disabled={saving} onClick={toggleFieldMenu('priority')}>
+                  <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${PRIORITY_BADGE[ticket.priority]}`}>
+                    {PRIORITY_LABELS[ticket.priority]}
+                  </span>
+                </DrawerField>
+                <Menu open={openFieldMenu === 'priority'} onClose={() => setOpenFieldMenu(null)} anchorRef={priorityBtnRef} width={220} items={priorityMenuItems} />
+                <DrawerField label="项目" anchorRef={projectBtnRef} disabled={saving} onClick={toggleFieldMenu('project')}>
+                  <Icon name="folder" size={16} className="shrink-0 text-[#8A8A8A] dark:text-[#A3A3A3]" />
+                  <span className="truncate">{project?.name ?? '—'}</span>
+                </DrawerField>
+                <Menu open={openFieldMenu === 'project'} onClose={() => setOpenFieldMenu(null)} anchorRef={projectBtnRef} width={220} items={projectMenuItems} />
                 <label className="block">
                   <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">分类</span>
                   <input
@@ -508,10 +782,14 @@ export default function TicketDrawer({
                     className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   />
                 </label>
-                <div>
-                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">负责人</span>
-                  <AvatarStack users={assignees} />
-                </div>
+                <DrawerField label="负责人" anchorRef={assigneeBtnRef} disabled={saving} onClick={toggleFieldMenu('assignee')}>
+                  {assignees.length > 0 ? (
+                    <AvatarStack users={assignees} />
+                  ) : (
+                    <span className="text-[#A3A3A3] dark:text-[#737373]">未指派</span>
+                  )}
+                </DrawerField>
+                <Menu open={openFieldMenu === 'assignee'} onClose={() => setOpenFieldMenu(null)} anchorRef={assigneeBtnRef} width={220} items={assigneeMenuItems} />
               </div>
 
               {/* Token chart — right after the fields so it is visible
@@ -528,38 +806,6 @@ export default function TicketDrawer({
                 ) : (
                   <TokenChart stats={tokenStats} />
                 )}
-              </div>
-
-              {/* Assignees multi-select */}
-              <div>
-                <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">
-                  指派给（可多选）
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {users.map((u) => {
-                    const on = ticket.assignee_ids.includes(u.id)
-                    return (
-                      <button
-                        key={u.id}
-                        disabled={saving}
-                        onClick={() => {
-                          const next = on
-                            ? ticket.assignee_ids.filter((id) => id !== u.id)
-                            : [...ticket.assignee_ids, u.id]
-                          void patch({ assignee_ids: next })
-                        }}
-                        className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs ${
-                          on
-                            ? 'border-[#2476FF] bg-[#EAF1FF] text-[#193CB8] dark:bg-[#2476FF]/20 dark:text-[#9CC3FF]'
-                            : 'border-[#E5E5E5] text-[#737373] dark:border-[#2E2E2E] dark:text-[#D4D4D4]'
-                        }`}
-                      >
-                        <Avatar user={u} size={18} />
-                        {u.name}
-                      </button>
-                    )
-                  })}
-                </div>
               </div>
 
               {/* Description */}
@@ -713,7 +959,10 @@ export default function TicketDrawer({
             </div>
           )}
         </div>
-      </aside>
+          </aside>
+        </div>
+        <div ref={bandsRef} aria-hidden inert className="genie-bands" />
+      </div>
     </div>
   )
 }

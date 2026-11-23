@@ -29,9 +29,18 @@ export type IconName =
   | 'close'
   | 'menu'
   | 'chevronLeft'
+  | 'chevronRight'
   | 'chevronUp'
   | 'chevronDown'
   | 'logout'
+  | 'check'
+  | 'folder'
+  | 'statusBacklog'
+  | 'statusTodo'
+  | 'statusProgress'
+  | 'statusReview'
+  | 'statusDone'
+  | 'flag'
 
 const PATHS: Record<IconName, JSX.Element> = {
   bell: (
@@ -191,6 +200,7 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   chevronLeft: <path d="m15 18-6-6 6-6" />,
+  chevronRight: <path d="m9 18 6-6-6-6" />,
   chevronUp: <path d="m18 15-6-6-6 6" />,
   chevronDown: <path d="m6 9 6 6 6-6" />,
   logout: (
@@ -198,6 +208,40 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <path d="m16 17 5-5-5-5" />
       <path d="M21 12H9" />
+    </>
+  ),
+  check: <path d="M20 6 9 17l-5-5" />,
+  folder: <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />,
+  statusBacklog: (
+    <>
+      <rect x="2" y="3" width="20" height="5" rx="1" />
+      <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+      <path d="M10 12h4" />
+    </>
+  ),
+  statusTodo: <circle cx="12" cy="12" r="10" />,
+  statusProgress: (
+    <>
+      <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+      <path d="M22 12A10 10 0 0 0 12 2v10z" />
+    </>
+  ),
+  statusReview: (
+    <>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  statusDone: (
+    <>
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <path d="M22 4 12 14.01l-3-3" />
+    </>
+  ),
+  flag: (
+    <>
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+      <line x1="4" x2="4" y1="22" y2="15" />
     </>
   ),
 }

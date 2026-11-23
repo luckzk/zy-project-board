@@ -20,7 +20,7 @@ export default function AuthPage({
   onModeChange: (mode: 'login' | 'register') => void
   onAuthed: (user: AuthUser) => void
   dark: boolean
-  onToggleDark: () => void
+  onToggleDark: (origin?: { x: number; y: number }) => void
 }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -69,7 +69,7 @@ export default function AuthPage({
       <div className="flex items-center justify-between px-6 py-4">
         <span className="text-sm font-semibold">BoardUI 设计任务</span>
         <button
-          onClick={onToggleDark}
+          onClick={(e) => onToggleDark({ x: e.clientX, y: e.clientY })}
           className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-[#EBEBEB] bg-white text-[#737373] hover:bg-[#F7F7F7] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#A3A3A3]"
           aria-label={dark ? '切换到浅色' : '切换到深色'}
         >

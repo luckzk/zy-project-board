@@ -9,7 +9,54 @@ import {
   type User,
 } from '../types'
 import { Avatar } from './Avatar'
+import { DialogGenie } from './DialogGenie'
 import Icon from './Icon'
+import { Menu } from './Menu'
+import type { MenuItemDef } from './Menu'
+import { StatusIcon } from './StatusIcon'
+import { PRIORITY_BADGE } from './TicketCard'
+
+/** Borderless field trigger (original create-ticket-modal-module `rx`):
+ * no border, no background, icon + value, hover bg; menu is w-220px. */
+function FieldSelect({
+  label,
+  value,
+  placeholder,
+  placeholderIcon,
+  items,
+  menuOpen,
+  onToggle,
+  anchorRef,
+}: {
+  label: string
+  value: React.ReactNode
+  placeholder: string
+  placeholderIcon: React.ReactNode
+  items: MenuItemDef[]
+  menuOpen: boolean
+  onToggle: () => void
+  anchorRef: React.RefObject<HTMLButtonElement | null>
+}) {
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        aria-label={label}
+        onClick={onToggle}
+        className="flex w-auto items-center justify-start gap-1.5 rounded-md border-0 bg-transparent p-0 text-sm font-medium text-[#737373] shadow-none hover:bg-[#F7F7F7] dark:text-[#D4D4D4] dark:hover:bg-[#262626]"
+      >
+        {value ?? (
+          <>
+            {placeholderIcon}
+            <span className="text-[#A3A3A3] dark:text-[#737373]">{placeholder}</span>
+          </>
+        )}
+      </button>
+      <Menu open={menuOpen} onClose={onToggle} anchorRef={anchorRef} width={220} items={items} />
+    </>
+  )
+}
 
 export default function NewTicketDialog({
   open,
@@ -30,7 +77,7 @@ export default function NewTicketDialog({
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState('')
   const [status, setStatus] = useState<TicketStatus>('todo')
-  const [priority, setPriority] = useState<Priority>('medium')
+  const [priority, setPriority] = useState<Priority | null>(null)
   const [projectId, setProjectId] = useState('')
   const [assigneeIds, setAssigneeIds] = useState<string[]>([])
   const [prefix, setPrefix] = useState<'FE' | 'DS' | 'BE'>('FE')
@@ -38,6 +85,14 @@ export default function NewTicketDialog({
   const [titleError, setTitleError] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
+
+  const titleRef = useRef<HTMLTextAreaElement>(null)
+  const statusRef = useRef<HTMLButtonElement>(null)
+  const priorityRef = useRef<HTMLButtonElement>(null)
+  const assigneeRef = useRef<HTMLButtonElement>(null)
+  const projectRef = useRef<HTMLButtonElement>(null)
+  const prefixRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (open && projects.length > 0 && !projectId) setProjectId(projects[0].id)
@@ -47,40 +102,50 @@ export default function NewTicketDialog({
     if (open && initialStatus) setStatus(initialStatus)
   }, [open, initialStatus])
 
-  // Centred dialog: fade + scale 95%->100% + slight upward move, 200ms.
-  // Mounts first, then animates in; closing reverses and only then
-  // tells the parent to clear `open`.
-  const [mounted, setMounted] = useState(false)
-  const [visible, setVisible] = useState(false)
-  const closeTimer = useRef<number | null>(null)
+  // Bottom sheet + genie (original create-ticket-modal-module): the panel
+  // enters with a 0.48s genie and exits the same way; only when the exit
+  // finishes does the parent clear `open`.
+  const [mounted, setMounted] = useState(open)
+  const [closing, setClosing] = useState(false)
+  const [veilVisible, setVeilVisible] = useState(false)
 
   useEffect(() => {
     if (open) {
       setMounted(true)
-      const raf = requestAnimationFrame(() =>
-        requestAnimationFrame(() => setVisible(true)),
-      )
+      setClosing(false)
+      const raf = requestAnimationFrame(() => requestAnimationFrame(() => setVeilVisible(true)))
       return () => cancelAnimationFrame(raf)
     }
-    setMounted(false)
-    setVisible(false)
     return undefined
-  }, [open ])
+  }, [open])
+
+  useEffect(() => {
+    if (!mounted) return
+    const raf = requestAnimationFrame(() => titleRef.current?.focus())
+    return () => cancelAnimationFrame(raf)
+  }, [mounted])
 
   useEffect(() => {
     if (!mounted) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose()
+      if (e.key === 'Escape' && !openMenu) requestClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted])
+  }, [mounted, openMenu])
 
-  function handleClose() {
-    if (closeTimer.current) window.clearTimeout(closeTimer.current)
-    setVisible(false)
-    closeTimer.current = window.setTimeout(() => onClose(), 200)
+  function requestClose() {
+    if (closing) return
+    setClosing(true)
+    setVeilVisible(false)
+  }
+
+  function handleExitDone() {
+    resetForm()
+    setMounted(false)
+    setClosing(false)
+    onClose()
   }
 
   if (!mounted) return null
@@ -91,11 +156,14 @@ export default function NewTicketDialog({
     setCategory('')
     setTitleError('')
     setError(null)
+    setKeepGoing(false)
+    setOpenMenu(null)
   }
 
   async function submit() {
     if (!title.trim()) {
       setTitleError('标题不能为空')
+      titleRef.current?.focus()
       return
     }
     setTitleError('')
@@ -107,17 +175,19 @@ export default function NewTicketDialog({
         description,
         category: category.trim() || undefined,
         status,
-        priority,
+        priority: priority ?? 'medium',
         project_id: projectId || undefined,
         assignee_ids: assigneeIds,
         prefix,
       })
       onCreated()
       if (keepGoing) {
-        resetForm()
+        // Original: only title/description are cleared, title refocused.
+        setTitle('')
+        setDescription('')
+        titleRef.current?.focus()
       } else {
-        resetForm()
-        handleClose()
+        requestClose()
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '创建失败')
@@ -127,195 +197,260 @@ export default function NewTicketDialog({
   }
 
   function toggleAssignee(id: string) {
-    setAssigneeIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
+    setAssigneeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
+  const toggleMenu = (name: string) => () => setOpenMenu((cur) => (cur === name ? null : name))
+  const selectedProject = projects.find((p) => p.id === projectId)
+  const assignees = users.filter((u) => assigneeIds.includes(u.id))
+
+  const statusItems: MenuItemDef[] = (Object.keys(STATUS_LABELS) as TicketStatus[]).map((s) => ({
+    id: s,
+    label: STATUS_LABELS[s],
+    icon: <StatusIcon status={s} className="text-[#8A8A8A] dark:text-[#A3A3A3]" />,
+    selected: status === s,
+    onSelect: () => setStatus(s),
+  }))
+  const priorityItems: MenuItemDef[] = (Object.keys(PRIORITY_LABELS) as Priority[]).map((p) => ({
+    id: p,
+    label: <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${PRIORITY_BADGE[p]}`}>{PRIORITY_LABELS[p]}</span>,
+    selected: priority === p,
+    onSelect: () => setPriority(p),
+  }))
+  const assigneeItems: MenuItemDef[] = users.map((u) => ({
+    id: u.id,
+    label: u.name,
+    avatarUser: u,
+    checked: assigneeIds.includes(u.id),
+    keepOpen: true,
+    onSelect: () => toggleAssignee(u.id),
+  }))
+  const projectItems: MenuItemDef[] = projects.map((p) => ({
+    id: p.id,
+    label: p.name,
+    icon: <Icon name="folder" size={16} />,
+    selected: projectId === p.id,
+    onSelect: () => setProjectId(p.id),
+  }))
+  const prefixItems: MenuItemDef[] = (['FE', 'DS', 'BE'] as const).map((p) => ({
+    id: p,
+    label: p,
+    selected: prefix === p,
+    onSelect: () => setPrefix(p),
+  }))
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-clip px-4 pt-4 pb-10">
       <div
-        className={`absolute inset-0 bg-black/20 ${visible ? 'anim-fade-in' : 'anim-fade-out'}`}
-        onClick={handleClose}
-      />
-      <div
-        className={`relative w-full max-w-lg rounded-2xl bg-white shadow-2xl dark:bg-[#171717] ${
-          visible ? 'anim-dialog-in' : 'anim-dialog-out'
+        className={`absolute inset-0 bg-black/20 transition-opacity duration-200 ease-out ${
+          veilVisible && !closing ? 'opacity-100' : 'opacity-0'
         }`}
-      >
-        <div className="flex items-center justify-between border-b border-[#EBEBEB] px-5 py-3 dark:border-[#262626]">
-          <h2 className="text-base font-semibold text-[#0A0A0A] dark:text-[#F5F5F5]">新建票据</h2>
-          <button
-            onClick={handleClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
-            aria-label="关闭"
+        onClick={requestClose}
+      />
+      <div className="relative w-[560px] max-w-full" style={{ transformOrigin: 'bottom' }}>
+        <DialogGenie exiting={closing} onExitDone={handleExitDone}>
+          <div
+            role="dialog"
+            aria-label="新建票据"
+            className="max-h-[calc(100dvh-56px)] overflow-y-auto rounded-3xl bg-white p-4 outline-none dark:bg-[#171717]"
           >
-            <Icon name="close" size={18} />
-          </button>
-        </div>
-
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
-          {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-              {error}
-            </div>
-          )}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-              标题 <span className="text-red-500">*</span>
-            </label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="例如：为移动端看板加上横向滚动"
-              className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-            />
-            {titleError && <p className="mt-1 text-xs text-red-600">{titleError}</p>}
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-              分类
-            </label>
-            <input
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="例如：座席切换"
-              className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-              描述
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder="补充背景、验收标准…"
-              className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-                状态
-              </span>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as TicketStatus)}
-                className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-2 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-              >
-                {(Object.keys(STATUS_LABELS) as TicketStatus[]).map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-                优先级
-              </span>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as Priority)}
-                className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-2 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-              >
-                {(Object.keys(PRIORITY_LABELS) as Priority[]).map((p) => (
-                  <option key={p} value={p}>
-                    {PRIORITY_LABELS[p]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-                项目
-              </span>
-              <select
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-2 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-                编号前缀
-              </span>
-              <select
-                value={prefix}
-                onChange={(e) => setPrefix(e.target.value as 'FE' | 'DS' | 'BE')}
-                className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-2 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-              >
-                <option value="FE">FE（前端）</option>
-                <option value="DS">DS（设计）</option>
-                <option value="BE">BE（后端）</option>
-              </select>
-            </label>
-          </div>
-
-          <div>
-            <span className="mb-1 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-              负责人（可多选）
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {users.map((u) => {
-                const on = assigneeIds.includes(u.id)
-                return (
+            <form
+              className="flex flex-col gap-12"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void submit()
+              }}
+            >
+              <div className="flex flex-col gap-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-0.5 text-[13px] font-medium text-[#737373] dark:text-[#A3A3A3]">
+                    <span className="truncate">BoardUI 设计任务</span>
+                    <Icon name="chevronRight" size={15} className="shrink-0 text-[#A3A3A3]" />
+                    <span className="whitespace-nowrap">新建票据</span>
+                  </div>
                   <button
-                    key={u.id}
                     type="button"
-                    onClick={() => toggleAssignee(u.id)}
-                    className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs ${
-                      on
-                        ? 'border-[#2476FF] bg-[#EAF1FF] text-[#193CB8] dark:bg-[#2476FF]/20 dark:text-[#9CC3FF]'
-                        : 'border-[#E5E5E5] text-[#737373] dark:border-[#2E2E2E] dark:text-[#D4D4D4]'
-                    }`}
+                    onClick={requestClose}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
+                    aria-label="关闭"
                   >
-                    <Avatar user={u} size={18} />
-                    {u.name}
+                    <Icon name="close" size={18} />
                   </button>
-                )
-              })}
-            </div>
-          </div>
-        </div>
+                </div>
+                {error && (
+                  <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+                    {error}
+                  </div>
+                )}
+                {/* Title: auto-height textarea (original grid mirror trick). */}
+                <div className="relative grid max-h-[200px] text-base font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">
+                  <span aria-hidden className="invisible min-h-6 whitespace-pre-wrap break-words">
+                    {title || '新建票据标题'}​
+                  </span>
+                  <textarea
+                    ref={titleRef}
+                    rows={1}
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="新建票据标题"
+                    className="absolute inset-0 size-full resize-none border-0 bg-transparent p-0 outline-none placeholder:text-[#A3A3A3] dark:placeholder:text-[#737373]"
+                  />
+                </div>
+                {titleError && <p className="-mt-1 text-xs text-red-600">{titleError}</p>}
+                {/* Description: same auto-height trick, max 5000 chars. */}
+                <div className="relative grid max-h-[200px] text-sm text-[#737373] dark:text-[#D4D4D4]">
+                  <span aria-hidden className="invisible min-h-5 whitespace-pre-wrap break-words">
+                    {description || '描述'}​
+                  </span>
+                  <textarea
+                    rows={1}
+                    maxLength={5000}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="描述"
+                    className="absolute inset-0 size-full resize-none border-0 bg-transparent p-0 outline-none placeholder:text-[#A3A3A3] dark:placeholder:text-[#737373]"
+                  />
+                </div>
+              </div>
 
-        <div className="flex items-center justify-between border-t border-[#EBEBEB] px-5 py-3 dark:border-[#262626]">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-[#737373] dark:text-[#D4D4D4]">
-            <input
-              type="checkbox"
-              checked={keepGoing}
-              onChange={(e) => setKeepGoing(e.target.checked)}
-              className="h-4 w-4 accent-[#2476FF]"
-            />
-            继续创建另一张
-          </label>
-          <div className="flex gap-2">
-            <button
-              onClick={handleClose}
-              className="rounded-lg border border-[#E5E5E5] px-4 py-2 text-sm dark:border-[#2E2E2E] dark:text-[#E5E5E5]"
-            >
-              取消
-            </button>
-            <button
-              onClick={() => void submit()}
-              disabled={saving}
-              className="rounded-lg bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] px-4 py-2 text-sm font-medium text-white hover:brightness-95 disabled:opacity-50"
-            >
-              {saving ? '创建中…' : '创建票据'}
-            </button>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                  <FieldSelect
+                    label="状态"
+                    value={
+                      <>
+                        <StatusIcon status={status} className="text-[#8A8A8A] dark:text-[#A3A3A3]" />
+                        <span className="text-[#737373] dark:text-[#D4D4D4]">{STATUS_LABELS[status]}</span>
+                      </>
+                    }
+                    placeholder="状态"
+                    placeholderIcon={<StatusIcon status={status} className="text-[#A3A3A3]" />}
+                    items={statusItems}
+                    menuOpen={openMenu === 'status'}
+                    onToggle={toggleMenu('status')}
+                    anchorRef={statusRef}
+                  />
+                  <FieldSelect
+                    label="优先级"
+                    value={
+                      priority ? (
+                        <span className={`rounded-md px-[7px] py-[3px] text-[11px] font-medium ${PRIORITY_BADGE[priority]}`}>
+                          {PRIORITY_LABELS[priority]}
+                        </span>
+                      ) : null
+                    }
+                    placeholder="优先级"
+                    placeholderIcon={<Icon name="flag" size={18} className="text-[#A3A3A3]" />}
+                    items={priorityItems}
+                    menuOpen={openMenu === 'priority'}
+                    onToggle={toggleMenu('priority')}
+                    anchorRef={priorityRef}
+                  />
+                  <FieldSelect
+                    label="负责人"
+                    value={
+                      assignees.length > 0 ? (
+                        <>
+                          <span className="flex -space-x-1">
+                            {assignees.slice(0, 3).map((u) => (
+                              <Avatar key={u.id} user={u} size={18} />
+                            ))}
+                          </span>
+                          <span className="text-[#737373] dark:text-[#D4D4D4]">
+                            {assignees.length === 1 ? assignees[0].name : `${assignees.length} 人`}
+                          </span>
+                        </>
+                      ) : null
+                    }
+                    placeholder="负责人"
+                    placeholderIcon={<Icon name="user" size={18} className="text-[#A3A3A3]" />}
+                    items={assigneeItems}
+                    menuOpen={openMenu === 'assignee'}
+                    onToggle={toggleMenu('assignee')}
+                    anchorRef={assigneeRef}
+                  />
+                  <FieldSelect
+                    label="项目"
+                    value={
+                      selectedProject ? (
+                        <>
+                          <Icon name="folder" size={18} className="text-[#0A0A0A] opacity-30 dark:text-white" />
+                          <span className="text-[#737373] dark:text-[#D4D4D4]">{selectedProject.name}</span>
+                        </>
+                      ) : null
+                    }
+                    placeholder="项目"
+                    placeholderIcon={<Icon name="folder" size={18} className="text-[#A3A3A3]" />}
+                    items={projectItems}
+                    menuOpen={openMenu === 'project'}
+                    onToggle={toggleMenu('project')}
+                    anchorRef={projectRef}
+                  />
+                  <FieldSelect
+                    label="编号前缀"
+                    value={
+                      <>
+                        <span className="text-[#A3A3A3] dark:text-[#737373]">编号</span>
+                        <span className="text-[#737373] dark:text-[#D4D4D4]">{prefix}</span>
+                      </>
+                    }
+                    placeholder="编号"
+                    placeholderIcon={null}
+                    items={prefixItems}
+                    menuOpen={openMenu === 'prefix'}
+                    onToggle={toggleMenu('prefix')}
+                    anchorRef={prefixRef}
+                  />
+                  <input
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    placeholder="分类"
+                    aria-label="分类"
+                    className="w-24 rounded-md bg-transparent px-1 py-0.5 text-sm text-[#737373] outline-none placeholder:text-[#A3A3A3] hover:bg-[#F7F7F7] focus:bg-[#F7F7F7] dark:text-[#D4D4D4] dark:placeholder:text-[#737373] dark:hover:bg-[#262626] dark:focus:bg-[#262626]"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={keepGoing}
+                    onClick={() => setKeepGoing((v) => !v)}
+                    className="flex items-center gap-2"
+                  >
+                    <span
+                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ${
+                        keepGoing ? 'bg-[#2476FF]' : 'bg-[#E5E5E5] dark:bg-[#2E2E2E]'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                          keepGoing ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </span>
+                    <span className="text-[13px] font-medium text-[#A3A3A3] dark:text-[#737373]">继续创建另一张</span>
+                  </button>
+                  <div className="ms-auto flex gap-2.5">
+                    <button
+                      type="button"
+                      onClick={requestClose}
+                      className="rounded-lg border border-[#E5E5E5] bg-white px-4 py-2 text-sm text-[#262626] hover:bg-[#F7F7F7] dark:border-[#2E2E2E] dark:bg-[#171717] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="rounded-lg bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] px-4 py-2 text-sm font-medium text-white hover:brightness-95 disabled:opacity-50"
+                    >
+                      {saving ? '创建中…' : '创建票据'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </form>
           </div>
-        </div>
+        </DialogGenie>
       </div>
     </div>
   )

@@ -22,6 +22,7 @@ import SettingsModal, {
   DEFAULT_WIDE_FILL_KEY,
 } from './components/SettingsModal'
 import Icon from './components/Icon'
+import { useMountTransition } from './lib/useMountTransition'
 
 type SortMode = 'manual' | 'priority' | 'title'
 type Popover = 'sort' | 'filter' | 'display' | 'notif' | 'inbox' | null
@@ -68,6 +69,75 @@ export default function App() {
   const [dark, setDark] = useState<boolean>(loadTheme)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileSidebar, setMobileSidebar] = useState(false)
+  const mobileOverlay = useMountTransition(mobileSidebar, 325)
+  const themeRevealRef = useRef(false)
+
+  /** Theme toggle with the original's circular-mask reveal: 820ms
+   * cubic-bezier(0.16,1,0.3,1), mask SVG (blur 2, circle r=42), radius
+   * 2.5x the distance to the farthest corner, expanding from the click
+   * point. Falls back to an instant switch without ViewTransition
+   * support or under prefers-reduced-motion. */
+  const toggleDark = useCallback(
+    (origin?: { x: number; y: number }) => {
+      const next = !dark
+      const doc = document as Document & {
+        startViewTransition?: (cb: () => void) => { ready: Promise<void>; finished: Promise<void> }
+      }
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      if (themeRevealRef.current || !doc.startViewTransition || reduced) {
+        setDark(next)
+        return
+      }
+      themeRevealRef.current = true
+      const root = document.documentElement
+      root.classList.add('theme-transitioning')
+      const transition = doc.startViewTransition(() => setDark(next))
+      transition.ready
+        .then(() => {
+          const rect = root.getBoundingClientRect()
+          const x = origin?.x ?? rect.width / 2
+          const y = origin?.y ?? rect.height / 2
+          const r = Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y)) * 2.5
+          const pos = `${x - r}px ${y - r}px`
+          const size = `${2 * r}px ${2 * r}px`
+          root.animate(
+            [
+              { maskSize: '0px 0px', WebkitMaskSize: '0px 0px', maskPosition: pos, WebkitMaskPosition: pos },
+              { maskSize: size, WebkitMaskSize: size, maskPosition: pos, WebkitMaskPosition: pos },
+            ],
+            {
+              duration: 820,
+              easing: 'cubic-bezier(0.16,1,0.3,1)',
+              fill: 'forwards',
+              pseudoElement: '::view-transition-new(root)',
+            },
+          )
+        })
+        .catch(() => {
+          root.classList.remove('theme-transitioning')
+          themeRevealRef.current = false
+        })
+      transition.finished
+        .then(() => {
+          root.classList.remove('theme-transitioning')
+          themeRevealRef.current = false
+        })
+        .catch(() => {
+          root.classList.remove('theme-transitioning')
+          themeRevealRef.current = false
+        })
+    },
+    [dark],
+  )
+
+  // Cross-tab theme sync (original theme-toggle-module).
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'zy-board-theme') setDark(e.newValue === 'dark')
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   // Auth: null = not logged in. authChecked gates the first paint so a
   // stored token is validated before the login page flashes.
@@ -290,11 +360,15 @@ export default function App() {
     'relative flex h-9 w-9 items-center justify-center rounded-[10px] border border-[#EBEBEB] bg-white text-base leading-none text-[#737373] hover:bg-[#F7F7F7] hover:text-[#0A0A0A] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#A3A3A3] dark:hover:bg-[#262626] dark:hover:text-[#F5F5F5]'
   const sortLabel = sort === 'manual' ? '手动' : sort === 'priority' ? '优先级' : '标题'
   const menuItem = (active: boolean) =>
-    `block w-full rounded-lg px-2 py-1.5 text-left text-sm ${
+    `flex w-full items-center gap-2 rounded-[10px] px-2 py-1.5 text-left text-[13px] ${
       active
-        ? 'bg-[#EAF1FF] font-medium text-[#193CB8] dark:bg-[#2476FF]/20 dark:text-[#9CC3FF]'
+        ? 'font-medium text-[#171717] dark:text-white'
         : 'text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]'
     }`
+  // Blue dot on a trigger whose state is not the default (original menu-module).
+  const triggerDot = (
+    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#2476FF] ring-2 ring-white dark:ring-[#202020]" />
+  )
 
   if (!authChecked) {
     return (
@@ -311,7 +385,7 @@ export default function App() {
         onModeChange={setAuthMode}
         onAuthed={(u) => setAuthUser(u)}
         dark={dark}
-        onToggleDark={() => setDark((v) => !v)}
+        onToggleDark={toggleDark}
       />
     )
   }
@@ -322,16 +396,28 @@ export default function App() {
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((v) => !v)}
         dark={dark}
-        onToggleDark={() => setDark((v) => !v)}
+        onToggleDark={toggleDark}
         mobileOpen={mobileSidebar}
-        onCloseMobile={() => setMobileSidebar(false)}
         onNavigate={handleNavigate}
         currentUser={authUser}
         onLogout={handleLogout}
         activeView="board"
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Mobile nav (original mobile-nav-module): the main content shifts
+          +272px with a 32px radius; the overlay covers the shifted main
+          and closes the nav on tap. */}
+      <div className={`mobile-nav-main relative flex min-w-0 flex-1 flex-col ${mobileSidebar ? 'is-open' : ''}`}>
+        {mobileOverlay.mounted && (
+          <button
+            type="button"
+            aria-label="关闭菜单"
+            onClick={() => setMobileSidebar(false)}
+            className={`mobile-nav-overlay absolute inset-0 z-50 rounded-[inherit] bg-black/10 dark:bg-white/5 md:hidden ${
+              mobileOverlay.visible ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+        )}
         {/* Header */}
         <header className="border-b border-[#EBEBEB] bg-white px-4 pb-3 pt-4 dark:border-[#262626] dark:bg-[#121212] sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -380,6 +466,7 @@ export default function App() {
                   onClick={() => togglePopover('sort')}
                 >
                   <Icon name="sort" size={18} />
+                  {sort !== 'manual' && triggerDot}
                 </button>
                 <button
                   className={iconBtn}
@@ -387,6 +474,7 @@ export default function App() {
                   onClick={() => togglePopover('filter')}
                 >
                   <Icon name="filter" size={18} />
+                  {(priorityFilter !== 'all' || projectFilter !== 'all') && triggerDot}
                 </button>
                 <button
                   className={iconBtn}
@@ -394,6 +482,7 @@ export default function App() {
                   onClick={() => togglePopover('display')}
                 >
                   <Icon name="layout" size={18} />
+                  {(!showDone || wideFill) && triggerDot}
                 </button>
                 <button
                   onClick={() => openNewTicket()}
@@ -404,12 +493,12 @@ export default function App() {
 
                 {popover && (
                   <span
-                    className={`absolute right-0 top-11 z-40 w-64 overflow-hidden rounded-xl border border-[#EBEBEB] bg-white shadow-lg dark:border-[#2E2E2E] dark:bg-[#202020] ${
+                    className={`absolute right-0 top-11 z-40 w-[220px] overflow-hidden rounded-[14px] border border-[#EBEBEB] bg-white p-1 shadow-lg dark:border-[#2E2E2E] dark:bg-[#202020] ${
                       popoverClosing ? 'anim-pop-out' : 'anim-pop-in'
                     }`}
                   >
                     {popover === 'sort' && (
-                      <span className="block p-2">
+                      <span className="block">
                         <span className="block px-2 pb-1 pt-1 text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">排序</span>
                         {(
                           [
@@ -426,13 +515,14 @@ export default function App() {
                             }}
                             className={menuItem(sort === v)}
                           >
-                            {label}
+                            <span className="flex-1">{label}</span>
+                            {sort === v && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
                           </button>
                         ))}
                       </span>
                     )}
                     {popover === 'filter' && (
-                      <span className="block p-2">
+                      <span className="block">
                         <span className="block px-2 pb-1 pt-1 text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">优先级</span>
                         {(['all', 'low', 'medium', 'high', 'urgent'] as const).map((v) => (
                           <button
@@ -443,7 +533,8 @@ export default function App() {
                             }}
                             className={menuItem(priorityFilter === v)}
                           >
-                            {v === 'all' ? '全部' : PRIORITY_LABELS[v]}
+                            <span className="flex-1">{v === 'all' ? '全部' : PRIORITY_LABELS[v]}</span>
+                            {priorityFilter === v && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
                           </button>
                         ))}
                         <span className="mt-1 block border-t border-[#EBEBEB] px-2 pb-1 pt-2 text-xs font-medium text-[#737373] dark:border-[#2E2E2E] dark:text-[#A3A3A3]">
@@ -458,15 +549,27 @@ export default function App() {
                             }}
                             className={menuItem(projectFilter === p.id)}
                           >
-                            {p.name}
+                            <span className="flex-1">{p.name}</span>
+                            {projectFilter === p.id && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
                           </button>
                         ))}
+                        {(priorityFilter !== 'all' || projectFilter !== 'all') && (
+                          <button
+                            onClick={() => {
+                              setPriorityFilter('all')
+                              setProjectFilter('all')
+                              closePopover()
+                            }}
+                            className="mt-1 flex w-full items-center gap-2 rounded-[10px] border-t border-[#EBEBEB] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:border-[#2E2E2E] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+                          >
+                            清除筛选
+                          </button>
+                        )}
                       </span>
                     )}
                     {popover === 'display' && (
-                      <span className="block p-2">
-                        <span className="block px-2 pb-1 pt-1 text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">显示</span>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]">
+                      <span className="block">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-[10px] px-2 py-1.5 text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]">
                           <input
                             type="checkbox"
                             checked={showDone}
@@ -475,7 +578,7 @@ export default function App() {
                           />
                           显示完成列
                         </label>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-[10px] px-2 py-1.5 text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]">
                           <input
                             type="checkbox"
                             checked={wideFill}
@@ -487,7 +590,7 @@ export default function App() {
                       </span>
                     )}
                     {popover === 'notif' && (
-                      <span className="block p-2">
+                      <span className="block">
                         <span className="flex items-center justify-between px-2 pb-1 pt-1">
                           <span className="text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">通知</span>
                           <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
@@ -497,7 +600,7 @@ export default function App() {
                         {DEMO_NOTIFICATIONS.map((n) => (
                           <span
                             key={n.id}
-                            className="block rounded-lg px-2 py-1.5 text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+                            className="block rounded-[10px] px-2 py-1.5 text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                           >
                             {n.text}
                             <span className="block text-xs text-[#737373] dark:text-[#A3A3A3]">{n.time} · 演示数据</span>
@@ -577,6 +680,8 @@ export default function App() {
                   onCardClick={(t) => setSelectedTicketId(t.id)}
                   onMove={moveTicket}
                   onAddTicket={(s) => openNewTicket(s)}
+                  wideFill={wideFill}
+                  onDragCancel={() => void refreshBoard()}
                 />
               )}
         </main>
@@ -603,7 +708,7 @@ export default function App() {
         user={authUser}
         onUserChanged={(u) => setAuthUser(u)}
         dark={dark}
-        onToggleDark={() => setDark((v) => !v)}
+        onToggleDark={toggleDark}
         ticketCount={columns.reduce((n, c) => n + c.tickets.length, 0)}
         userCount={users.length}
         onLogout={handleLogout}

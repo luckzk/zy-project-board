@@ -36,39 +36,35 @@ body {
 }
 
 /* ---- Entrance animations (measured from the original) ----
- * Drawer: straight slide in from the right edge, 250ms ease-out.
- *   Not a macOS genie morph: no scaling from the card, no curved path,
- *   full height and constant width the whole way; closing slides back
- *   out at the same speed.
- * Popovers: fade + scale 95%->100% + translateY, 200ms ease-out.
- * Dialog: fade + scale 95%->100% + slight upward move, 200ms.
+ * Drawer: macOS-style genie morph (see lib/genie.ts + TicketDrawer):
+ *   the panel is cloned, sliced into horizontal bands and warped with a
+ *   matrix3d funnel toward a point just outside its bottom-right corner,
+ *   480ms linear, 33 smoothstep keyframes; closing warps it back.
+ *   Panel: max-w 609px, inset 12px, rounded 24px.
+ * Token chart: clip-path reveal, 1.8s cubic-bezier(.33,0,.15,1), gated
+ *   by [data-entered] on the genie root (fully clipped until the genie
+ *   finishes entering).
+ * Popovers/menus/dialogs: 150ms ease-out, blur(2px) + scale 95 + fade-in
+ *   (original modal-module / menu-module).
  * Overlays: plain fade, 200ms.
  * Theme switch itself is instant: no colour transitions anywhere.
  */
 
-@keyframes drawer-in {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
-}
-@keyframes drawer-out {
-  from { transform: translateX(0); }
-  to { transform: translateX(100%); }
-}
 @keyframes pop-in {
-  from { opacity: 0; transform: translateY(-4px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: scale(0.95); filter: blur(2px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
 }
 @keyframes pop-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-4px) scale(0.95); }
+  from { opacity: 1; transform: scale(1); filter: blur(0); }
+  to { opacity: 0; transform: scale(0.95); filter: blur(2px); }
 }
 @keyframes dialog-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: scale(0.95); filter: blur(2px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
 }
 @keyframes dialog-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(8px) scale(0.95); }
+  from { opacity: 1; transform: scale(1); filter: blur(0); }
+  to { opacity: 0; transform: scale(0.95); filter: blur(2px); }
 }
 @keyframes fade-in {
   from { opacity: 0; }
@@ -79,11 +75,134 @@ body {
   to { opacity: 0; }
 }
 
-.anim-drawer-in { animation: drawer-in 250ms ease-out both; }
-.anim-drawer-out { animation: drawer-out 250ms ease-out both; }
-.anim-pop-in { animation: pop-in 200ms ease-out both; }
-.anim-pop-out { animation: pop-out 150ms ease-in both; }
-.anim-dialog-in { animation: dialog-in 200ms ease-out both; }
-.anim-dialog-out { animation: dialog-out 150ms ease-in both; }
+.anim-pop-in { animation: pop-in 150ms ease-out both; }
+.anim-pop-out { animation: pop-out 150ms ease-out both; }
+.anim-dialog-in { animation: dialog-in 150ms ease-out both; }
+.anim-dialog-out { animation: dialog-out 150ms ease-out both; }
 .anim-fade-in { animation: fade-in 200ms ease-out both; }
 .anim-fade-out { animation: fade-out 200ms ease-out both; }
+
+/* ---- Ticket-detail genie (original ticket-detail-modal-module) ---- */
+.genie-root { isolation: isolate; }
+.genie-surface { height: 100%; min-height: 0; position: relative; }
+.genie-shadow {
+  pointer-events: none;
+  transform-origin: 100% 100%;
+  border-radius: 24px;
+  position: absolute;
+  inset: 0;
+  box-shadow: -10px 0 34px rgba(0, 0, 0, 0.05), -10px 0 250px rgba(0, 0, 0, 0.25);
+}
+.genie-bands {
+  pointer-events: none;
+  opacity: 0;
+  position: absolute;
+  inset: 0;
+}
+.genie-band {
+  contain: strict;
+  transform-origin: 0 0;
+  will-change: transform;
+  backface-visibility: hidden;
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+}
+
+/* ---- Token chart reveal (original) ---- */
+@keyframes chart-reveal {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0); }
+}
+.animate-chart-reveal { animation: 1.8s cubic-bezier(.33, 0, .15, 1) both chart-reveal; }
+/* Until the genie finishes entering, the chart stays fully clipped. */
+.genie-root:not([data-entered="true"]) .animate-chart-reveal {
+  clip-path: inset(0 100% 0 0);
+  animation: none;
+}
+.genie-surface .animate-chart-reveal { animation-delay: -150ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-chart-reveal { animation: none; }
+}
+
+/* ---- Round 6: theme reveal (original theme-toggle-module) ---- */
+::view-transition-old(root) { animation: none; z-index: 1; }
+::view-transition-new(root) {
+  animation: none;
+  z-index: 2;
+  /* Circular reveal mask: blurred circle (blur 2, r=42 in a 100x100
+   * viewBox); size/position are animated from the click point. */
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3Cfilter id='b'%3E%3CfeGaussianBlur stdDeviation='2'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='42' filter='url(%23b)' fill='black'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3Cfilter id='b'%3E%3CfeGaussianBlur stdDeviation='2'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='42' filter='url(%23b)' fill='black'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+}
+.theme-transitioning, .theme-transitioning * { transition: none !important; }
+
+/* ---- Round 6: token chart hover (original chart) ---- */
+@keyframes number-fade { 0% { opacity: .35; } to { opacity: 1; } }
+.animate-number-fade { animation: .22s ease-out both number-fade; }
+
+/* ---- Round 6: card add/remove (original: framer-motion 320ms) ---- */
+.card-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows .32s ease-in-out, opacity .32s ease-in-out;
+}
+.card-slot > .card-slot-inner { min-height: 0; overflow: hidden; }
+.card-slot-inner { transition: transform .32s ease-in-out, filter .32s ease-in-out, opacity .32s ease-in-out; }
+.card-slot-entering { grid-template-rows: 0fr; opacity: 0; }
+.card-slot-entering > .card-slot-inner { transform: scale(.9); filter: blur(4px); opacity: 0; }
+.card-slot-leaving { grid-template-rows: 0fr; opacity: 0; }
+.card-slot-leaving > .card-slot-inner { transform: scale(.7); filter: blur(6px); opacity: 0; }
+
+/* ---- Round 6: empty column illustration (original column-module) ---- */
+@keyframes empty-card-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.85); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes empty-front-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.4); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes empty-line-in {
+  from { width: 0; }
+  to { width: var(--empty-line-w, 14px); }
+}
+.empty-anim-card { animation: empty-card-in .32s ease-in-out both; transform-box: fill-box; transform-origin: center; }
+.empty-anim-front { animation: empty-front-in .32s ease-in-out both; transform-box: fill-box; transform-origin: center; }
+.empty-anim-line { animation: empty-line-in .32s ease-in-out both; }
+
+/* ---- Round 6: mobile nav (original mobile-nav-module) ---- */
+@media (max-width: 767px) {
+  .mobile-nav-main {
+    transition: transform .325s cubic-bezier(.42, 0, .58, 1), border-radius .325s cubic-bezier(.42, 0, .58, 1);
+    overflow: hidden;
+  }
+  .mobile-nav-main.is-open { transform: translateX(272px); border-radius: 32px; }
+}
+.mobile-nav-overlay { transition: opacity .325s cubic-bezier(.42, 0, .58, 1); }
+@keyframes mobile-sidebar-in {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes mobile-sidebar-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(.94); }
+}
+.anim-mobile-sidebar-in { animation: mobile-sidebar-in .325s cubic-bezier(.42, 0, .58, 1) both; }
+.anim-mobile-sidebar-out { animation: mobile-sidebar-out .325s cubic-bezier(.42, 0, .58, 1) both; }
+
+/* ---- Round 6: sidebar shadow token (original) ---- */
+.shadow-sidebar { box-shadow: 0 1px 0 0 rgba(0, 0, 0, .02), 0 1px 12px 0 rgba(0, 0, 0, .06), 0 0 1px 0 rgba(0, 0, 0, .32); }
+.dark .shadow-sidebar { box-shadow: 0 1px 0 0 rgba(0, 0, 0, .02), 0 1px 12px 0 rgba(0, 0, 0, .06), 0 0 1px 0 rgba(255, 255, 255, .12); }
+.shadow-nav-selected { box-shadow: 0 0 0 1px #ac4bff, inset 0 1px 0 0 rgba(255, 255, 255, .25); }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-pop-in, .anim-pop-out, .anim-dialog-in, .anim-dialog-out,
+  .animate-number-fade, .empty-anim-card, .empty-anim-front, .empty-anim-line,
+  .anim-mobile-sidebar-in, .anim-mobile-sidebar-out { animation: none; }
+  .card-slot, .card-slot-inner, .mobile-nav-main, .mobile-nav-overlay { transition: none; }
+}

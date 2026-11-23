@@ -4,7 +4,7 @@ import { formatTicketDate } from '../api'
 import { PRIORITY_LABELS, type Priority, type Project, type Ticket, type User } from '../types'
 import { AvatarStack } from './Avatar'
 
-const PRIORITY_BADGE: Record<Priority, string> = {
+export const PRIORITY_BADGE: Record<Priority, string> = {
   low: 'bg-[#BEDBFF] text-[#193CB8] dark:bg-[#BEDBFF]/15 dark:text-[#9CC3FF]',
   medium: 'bg-[#FFF085] text-[#894B00] dark:bg-[#FFF085]/15 dark:text-[#FFD666]',
   high: 'bg-[#FFD6A7] text-[#B75729] dark:bg-[#FFD6A7]/15 dark:text-[#FFB877]',
@@ -24,10 +24,14 @@ export default function TicketCard({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ticket.id,
+    // Original: sort 260ms cubic-bezier(0.22,1,0.36,1); place 320ms.
+    transition: { duration: 260, easing: 'cubic-bezier(0.22,1,0.36,1)' },
   })
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
+    transition: transition
+      ? `${transition}, box-shadow 200ms ease-out, opacity 200ms ease-out`
+      : 'box-shadow 200ms ease-out, opacity 200ms ease-out',
   }
   const assignees = ticket.assignee_ids
     .map((id) => users.find((u) => u.id === id))
@@ -43,8 +47,15 @@ export default function TicketCard({
       {...attributes}
       {...listeners}
       onClick={() => onClick(ticket)}
-      className={`cursor-grab touch-none rounded-xl border border-[#E7EAEC] bg-white p-3.5 shadow-[0_1px_2px_rgba(10,10,10,0.04)] transition-shadow hover:shadow-md active:cursor-grabbing dark:border-[#2E2E2E] dark:bg-[#202020] ${
-        isDragging ? 'opacity-40 shadow-lg' : ''
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onClick(ticket)
+        }
+      }}
+      className={`cursor-grab touch-none rounded-xl border border-[#E7EAEC] bg-white p-3.5 shadow-[0_1px_2px_rgba(10,10,10,0.04)] hover:shadow-md active:cursor-grabbing dark:border-[#2E2E2E] dark:bg-[#202020] ${
+        // Original: the dragged card's slot stays at opacity-20.
+        isDragging ? 'opacity-20' : ''
       }`}
     >
       {/* Row 1: code › category ......... overlapping avatars */}
