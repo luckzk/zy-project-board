@@ -17,6 +17,13 @@ class Ticket(Base):
     project_id = Column(String(64), nullable=False, default="p-boardui", index=True)
     # JSON-encoded list of user ids, e.g. '["u-maya", "u-priya"]'
     assignee_ids = Column(Text, nullable=False, default="[]")
+    # Display name of the account that created the ticket (JWT account
+    # name, or the passed author / "API" for API-Key calls). NULL for
+    # tickets created before this field existed — the drawer hides the
+    # "Created by" row rather than inventing a creator.
+    created_by = Column(String(128), nullable=True)
+    # Starred from the drawer header; persisted, not local state.
+    is_favorite = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
     completed_at = Column(DateTime, nullable=True)

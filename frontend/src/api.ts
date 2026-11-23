@@ -110,6 +110,10 @@ export const api = {
   getProjects: () => request<Project[]>('/api/projects'),
   getBoard: () => request<{ columns: BoardColumn[] }>('/api/board'),
   getTicket: (id: number) => request<Ticket>(`/api/tickets/${id}`),
+  /** One ticket by public code (FE-87); 404 when unknown. Used by the
+   * `/#ticket=<code>` deep link. */
+  getTicketByCode: (code: string) =>
+    request<Ticket>(`/api/tickets/by-code/${encodeURIComponent(code)}`),
   createTicket: (input: CreateTicketInput) =>
     request<Ticket>('/api/tickets', {
       method: 'POST',

@@ -43,6 +43,7 @@ export type IconName =
   | 'statusReview'
   | 'statusDone'
   | 'flag'
+  | 'arrowUp'
 
 const PATHS: Record<IconName, JSX.Element> = {
   bell: (
@@ -253,6 +254,12 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
       <line x1="4" x2="4" y1="22" y2="15" />
+    </>
+  ),
+  arrowUp: (
+    <>
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
     </>
   ),
 }

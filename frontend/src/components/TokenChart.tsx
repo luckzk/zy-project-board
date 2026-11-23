@@ -113,7 +113,9 @@ export default function TokenChart({ stats, loading }: { stats: TokenStats | nul
   }
 
   return (
-    <div className="rounded-[20px] border border-[#E5E5E5] bg-[#F7F7F7] p-4 dark:border-[#2E2E2E] dark:bg-[#202020]">
+    // Original card: no border, py-3; the delta chip is purple (not
+    // green/red by sign) and the value is 20px/26px/500.
+    <div className="rounded-[20px] bg-[#F7F7F7] px-4 py-3 dark:bg-[#202020]">
       <div className="flex items-baseline justify-between">
         <div>
           <div className="text-xs text-[#737373] dark:text-[#A3A3A3]">
@@ -127,7 +129,7 @@ export default function TokenChart({ stats, loading }: { stats: TokenStats | nul
               'Token 总消耗'
             )}
           </div>
-          <div className="mt-0.5 text-xl font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">
+          <div className="mt-0.5 text-xl font-medium leading-[26px] text-[#0A0A0A] dark:text-[#F5F5F5]">
             {loading ? (
               <span className="inline-block w-32 animate-pulse rounded bg-[#E5E5E5] dark:bg-[#2E2E2E]">
                 &nbsp;
@@ -146,13 +148,7 @@ export default function TokenChart({ stats, loading }: { stats: TokenStats | nul
             &nbsp;
           </span>
         ) : isEmpty ? null : (
-          <span
-            className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${
-              up
-                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
-                : 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
-            }`}
-          >
+          <span className="flex items-center gap-0.5 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
             <Icon name={up ? 'chevronUp' : 'chevronDown'} size={12} />{' '}
             {Math.abs(stats?.delta_pct ?? 0).toFixed(1)}%
           </span>

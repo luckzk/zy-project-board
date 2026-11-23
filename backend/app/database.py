@@ -85,7 +85,7 @@ def init_db():
     from app import models  # noqa: F401  (register models on Base)
 
     Base.metadata.create_all(bind=engine)
-    # Lightweight migration for DBs created before Ticket.category existed:
+    # Lightweight migrations for DBs created before a column existed:
     # create_all() never adds a column to an existing table.
     from sqlalchemy import inspect, text
 
@@ -100,6 +100,12 @@ def init_db():
                     text("UPDATE tickets SET category = :category WHERE code = :code AND (category IS NULL OR category = '')"),
                     {"category": category, "code": code},
                 )
+        if "created_by" not in cols:
+            # Nullable, no backfill: pre-existing tickets keep NULL and
+            # the drawer hides the "Created by" row for them.
+            conn.execute(text("ALTER TABLE tickets ADD COLUMN created_by VARCHAR(128)"))
+        if "is_favorite" not in cols:
+            conn.execute(text("ALTER TABLE tickets ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
 
     # One-time seed correction: DS-38 ships with two assignees (Maya Chen,
     # Priya Shah) in seed.py, but an earlier deploy left Daniel Kim attached

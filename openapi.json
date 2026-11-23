@@ -600,22 +600,6 @@
         "operationId": "create_ticket_api_tickets_post",
         "parameters": [
           {
-            "name": "x-api-key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -629,6 +613,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
             }
           }
         ],
@@ -948,6 +948,46 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tickets/by-code/{code}": {
+      "get": {
+        "summary": "Get Ticket By Code",
+        "description": "One ticket by its public code (e.g. FE-87), for deep links.\n\nThe drawer link is ``/#ticket=<code>``; the frontend resolves the\ncode to an id through this endpoint. Unknown codes are 404.",
+        "operationId": "get_ticket_by_code_api_tickets_by_code__code__get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketOut"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -1815,6 +1855,17 @@
               }
             ],
             "title": "Prefix"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
           }
         },
         "type": "object",
@@ -1864,6 +1915,22 @@
             },
             "type": "array",
             "title": "Assignee Ids"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "is_favorite": {
+            "type": "boolean",
+            "title": "Is Favorite",
+            "default": false
           },
           "created_at": {
             "type": "string",
@@ -2000,6 +2067,17 @@
               }
             ],
             "title": "Position"
+          },
+          "is_favorite": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Favorite"
           }
         },
         "type": "object",

@@ -32,6 +32,7 @@
 - 注册/登录：`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`、`PATCH /api/auth/me`、`POST /api/auth/change-password`；演示账号 `demo@zy-board.local` / `demo1234`。
 - 人员目录：`GET /api/users?source=&active=`；通用同步接口见 `docs/user-sync.md`，MCP 工具为 `sync_users`。
 - 消息通知：`GET /api/notifications?unread_only=&type=&limit=`（最新在前）、`GET /api/notifications/unread-count`、`POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`；通知由建票/改状态/评论/指派/用户同步自动生成，首次启动时从真实票据与评论回填。
+- 深链：票据链接是 `/#ticket=<code>`（如 `/#ticket=FE-87`），登录后打开自动开抽屉；`GET /api/tickets/by-code/{code}` 按 code 查单票（404 当 code 不存在）。票据有 `created_by`（创建账号显示名，存量票为 null、抽屉不显示）和 `is_favorite`（抽屉星标，PATCH 可改）。
 
 ## 规则（必须遵守）
 
@@ -43,4 +44,4 @@
 4. 工单有 `category` 字段（分类，如“座席切换”），创建/更新时可传；用户有 `avatar_url`（randomuser.me 真实头像）、`email`、`role`、`source`、`external_id`、`active` 字段。
 5. 前端必须调真实 API，禁止 mock 数据。
 6. 移动工单 = `PATCH /api/tickets/{id}`，同时传 `status` + `position`。
-7. 颜色与动效：浅色页背景 `#FFFFFF`、侧边栏/列 `#F7F7F7`、卡片 `#FFFFFF`、主蓝 `#2476FF`（渐变 `#1F6EFF→#2678FF`）；抽屉从右侧滑入 300ms、弹窗淡入+缩放 200ms、对话框淡入+缩放 200ms；不使用 toast 提示（反馈均为行内：复制按钮变“✓ 已复制”、星标变黄）。
+7. 颜色与动效：浅色页背景 `#FFFFFF`、侧边栏/列 `#F7F7F7`、卡片 `#FFFFFF`、主蓝 `#2476FF`（渐变 `#1F6EFF→#2678FF`）；抽屉从右侧滑入 300ms、弹窗淡入+缩放 200ms、对话框淡入+缩放 200ms；不使用 toast 提示（反馈均为行内：复制后 Tooltip 文案变“链接已复制”（1600ms）、星标变黄）。

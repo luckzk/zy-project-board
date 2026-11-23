@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { api, formatTicketDate } from '../api'
+import { api } from '../api'
 import {
   PRIORITY_LABELS,
   STATUS_LABELS,
@@ -20,6 +20,7 @@ import TokenChart from './TokenChart'
 import Icon from './Icon'
 import { Menu } from './Menu'
 import type { MenuItemDef } from './Menu'
+import { Tooltip } from './Tooltip'
 import { StatusIcon } from './StatusIcon'
 import { PRIORITY_BADGE } from './TicketCard'
 import {
@@ -34,35 +35,30 @@ import {
   uniqueId,
 } from '../lib/genie'
 
-/** Field trigger button (original drawer field): bordered box showing the
- * current value with an icon, opening a w-220px menu. */
+/** Field trigger (original drawer): a borderless transparent button —
+ * no border, no chevron; the background only appears on hover. The
+ * w-220px menu opens below it. */
 function DrawerField({
-  label,
   anchorRef,
   disabled,
   onClick,
   children,
 }: {
-  label: string
   anchorRef: React.RefObject<HTMLButtonElement | null>
   disabled?: boolean
   onClick: () => void
   children: React.ReactNode
 }) {
   return (
-    <div>
-      <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">{label}</span>
-      <button
-        ref={anchorRef}
-        type="button"
-        disabled={disabled}
-        onClick={onClick}
-        className="flex w-full items-center gap-2 rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#262626] hover:bg-[#F7F7F7] disabled:opacity-50 dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
-      >
-        <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
-        <Icon name="chevronDown" size={14} className="shrink-0 text-[#A3A3A3]" />
-      </button>
-    </div>
+    <button
+      ref={anchorRef}
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="-m-1 flex items-center gap-2 rounded-md p-1 text-sm font-medium text-[#0A0A0A] hover:bg-[#F7F7F7] disabled:opacity-50 dark:text-[#F5F5F5] dark:hover:bg-[#262626]"
+    >
+      {children}
+    </button>
   )
 }
 
@@ -110,10 +106,17 @@ export default function TicketDrawer({
   // author picker anymore; the backend forces the JWT account).
   const [commentBody, setCommentBody] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [starred, setStarred] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuClosing, setMenuClosing] = useState(false)
-  const [copied, setCopied] = useState('')
+  // Copy feedback (original): the tooltip text flips to the copied
+  // wording and a sr-only status announces it; both clear after 1600ms.
+  const [copied, setCopied] = useState<'link' | 'id' | ''>('')
+  const copiedTimer = useRef<number | null>(null)
+  // Scroll fade (original): three frosted layers at the top of the
+  // content area, opacity = scrollTop / 24. Written straight to the DOM
+  // so scrolling never re-renders the drawer.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const fadeRef = useRef<HTMLDivElement>(null)
   // Field menus (original: icon/color-block dropdowns, w-220px; assignee
   // menu has checkboxes + 18px avatars).
   const [openFieldMenu, setOpenFieldMenu] = useState<string | null>(null)
@@ -431,7 +434,7 @@ export default function TicketDrawer({
     return `${d.getMonth() + 1}月${d.getDate()}日`
   }
 
-  async function copyText(text: string, label: string) {
+  async function copyText(text: string, kind: 'link' | 'id') {
     try {
       await navigator.clipboard.writeText(text)
     } catch {
@@ -442,8 +445,16 @@ export default function TicketDrawer({
       document.execCommand('copy')
       document.body.removeChild(ta)
     }
-    setCopied(label)
-    window.setTimeout(() => setCopied(''), 2000)
+    setCopied(kind)
+    if (copiedTimer.current) window.clearTimeout(copiedTimer.current)
+    copiedTimer.current = window.setTimeout(() => setCopied(''), 1600)
+  }
+
+  function handleContentScroll() {
+    const el = scrollRef.current
+    const fade = fadeRef.current
+    if (!el || !fade) return
+    fade.style.opacity = String(Math.min(el.scrollTop / 24, 1))
   }
 
   // Detail fetch: refreshes the seeded ticket and loads comments /
@@ -462,6 +473,11 @@ export default function TicketDrawer({
     }
     let cancelled = false
     setError(null)
+    // New ticket: back to the top (and the scroll fade with it) — the
+    // scroll position is per-node, so without this a scrolled ticket
+    // would leave the next ticket's fade stuck on.
+    scrollRef.current?.scrollTo(0, 0)
+    if (fadeRef.current) fadeRef.current.style.opacity = '0'
     setCommentsLoading(true)
     setTokenLoading(true)
     api
@@ -570,7 +586,6 @@ export default function TicketDrawer({
     .map((id) => users.find((u) => u.id === id))
     .filter((u): u is User => Boolean(u))
   const project = projects.find((p) => p.id === ticket?.project_id)
-  const creator = users[0]
 
   const toggleFieldMenu = (name: string) => () => setOpenFieldMenu((cur) => (cur === name ? null : name))
   const statusMenuItems: MenuItemDef[] = (Object.keys(STATUS_LABELS) as TicketStatus[]).map((s) => ({
@@ -580,11 +595,11 @@ export default function TicketDrawer({
     selected: ticket?.status === s,
     onSelect: () => void patch({ status: s }),
   }))
+  // Priority menu items are plain text in the original; the colour
+  // lives only on the trigger chip.
   const priorityMenuItems: MenuItemDef[] = (Object.keys(PRIORITY_LABELS) as Priority[]).map((p) => ({
     id: p,
-    label: (
-      <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${PRIORITY_BADGE[p]}`}>{PRIORITY_LABELS[p]}</span>
-    ),
+    label: PRIORITY_LABELS[p],
     selected: ticket?.priority === p,
     onSelect: () => void patch({ priority: p }),
   }))
@@ -628,9 +643,9 @@ export default function TicketDrawer({
       >
         <div ref={shadowRef} aria-hidden className="genie-shadow" />
         <div ref={surfaceRef} className="genie-surface">
-          <aside className="flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-[#E7EAEC] bg-white dark:border-[#2E2E2E] dark:bg-[#171717]">
-        <div className="flex items-center gap-1 border-b border-[#EBEBEB] px-5 py-3 dark:border-[#262626]">
-          <span className="min-w-0 flex-1 truncate text-sm text-[#737373] dark:text-[#A3A3A3]">
+          <aside className="flex h-full w-full flex-col overflow-hidden rounded-[24px] bg-white dark:bg-[#171717]">
+        <div className="flex items-center gap-1 px-6 pb-5 pt-6">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#737373] dark:text-[#A3A3A3]">
             BoardUI 设计任务 <span className="mx-0.5">›</span> {ticket ? ticket.code : '…'}
             {ticket?.category ? (
               <>
@@ -639,33 +654,36 @@ export default function TicketDrawer({
               </>
             ) : null}
           </span>
-          {copied && <span className="shrink-0 text-xs text-emerald-600">{copied}</span>}
+          {/* Copy feedback (original): the tooltip text flips to the
+              copied wording and a sr-only status announces it. */}
+          <span className="sr-only" role="status" aria-live="polite">
+            {copied === 'link' ? '链接已复制' : copied === 'id' ? '票据 ID 已复制' : ''}
+          </span>
           <button
-            onClick={() => setStarred((v) => !v)}
-            className={`flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[#F7F7F7] dark:hover:bg-[#262626] ${
-              starred ? 'text-amber-500' : 'text-[#737373]'
+            onClick={() => ticket && void patch({ is_favorite: !ticket.is_favorite })}
+            disabled={!ticket || saving}
+            className={`flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[#F7F7F7] disabled:opacity-50 dark:hover:bg-[#262626] ${
+              ticket?.is_favorite ? 'text-amber-500' : 'text-[#737373]'
             }`}
             aria-label="收藏"
           >
-            <Icon name="star" size={18} filled={starred} />
+            <Icon name="star" size={17} filled={ticket?.is_favorite ?? false} />
           </button>
-          <button
-            onClick={() =>
-              void copyText(
-                `${window.location.origin}/#${ticket?.code ?? ''}`,
-                '链接已复制',
-              )
-            }
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
-            aria-label="复制链接"
-            title="复制链接"
-          >
-            <Icon name="link" size={18} />
-          </button>
+          <Tooltip label={copied === 'link' ? '链接已复制' : '复制链接'}>
+            <button
+              onClick={() =>
+                void copyText(`${window.location.origin}/#ticket=${ticket?.code ?? ''}`, 'link')
+              }
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
+              aria-label="复制链接"
+            >
+              <Icon name="link" size={17} />
+            </button>
+          </Tooltip>
           <span className="relative">
             <button
               onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#EBEBEB] bg-white text-[#737373] shadow-xs hover:bg-[#F7F7F7] dark:border-[#2E2E2E] dark:bg-[#202020] dark:hover:bg-[#262626]"
               aria-label="更多操作"
             >
               <Icon name="dots" size={18} />
@@ -688,7 +706,7 @@ export default function TicketDrawer({
                   <button
                     onClick={() => {
                       closeMenu()
-                      void copyText(ticket.code, '票据 ID 已复制')
+                      void copyText(ticket.code, 'id')
                     }}
                     className="block w-full rounded-[10px] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
@@ -697,11 +715,11 @@ export default function TicketDrawer({
                   <button
                     onClick={() => {
                       closeMenu()
-                      void patch({ status: 'done' })
+                      void patch({ status: ticket.status === 'done' ? 'todo' : 'done' })
                     }}
                     className="block w-full rounded-[10px] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
-                    标记为已完成
+                    {ticket.status === 'done' ? '重新打开' : '标记为已完成'}
                   </button>
                   <button
                     onClick={() => {
@@ -718,14 +736,14 @@ export default function TicketDrawer({
           </span>
           <button
             onClick={handleClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#F7F7F7] text-[#737373] hover:bg-[#EBEBEB] dark:bg-[#262626] dark:hover:bg-[#2E2E2E]"
             aria-label="关闭"
           >
             <Icon name="close" size={18} />
           </button>
         </div>
         {confirmDelete && ticket && (
-          <div className="flex items-center gap-2 border-b border-red-100 bg-red-50 px-5 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          <div className="flex items-center gap-2 bg-red-50 px-6 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
             <span className="flex-1">确定删除这张票吗？</span>
             <button
               onClick={() => void deleteTicket()}
@@ -743,114 +761,49 @@ export default function TicketDrawer({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          {error && (
-            <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-              {error}
-            </div>
-          )}
-          {ticket ? (
-            <div className="space-y-5">
-              {/* Title */}
-              {editing ? (
-                <div>
-                  <input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-lg font-semibold outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-                  />
-                  {titleError && <p className="mt-1 text-xs text-red-600">{titleError}</p>}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={handleContentScroll}
+            className="h-full overflow-y-auto"
+          >
+            <div className="flex min-h-full flex-col gap-5 px-6 py-5">
+              {error && (
+                <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+                  {error}
                 </div>
-              ) : (
-                <h2 className="text-lg font-semibold leading-snug text-[#0A0A0A] dark:text-[#F5F5F5]">
-                  {ticket.title}
-                </h2>
               )}
-              <div className="flex items-center gap-2 text-xs text-[#737373] dark:text-[#A3A3A3]">
-                <span>创建者</span>
-                {creator && <Avatar user={creator} size={20} />}
-                <span>{creator?.name ?? '—'}</span>
-                <span>·</span>
-                <span>{formatTicketDate(ticket.created_at, false)}</span>
-                {ticket.completed_at && (
-                  <>
-                    <span>·</span>
-                    <span>{formatTicketDate(ticket.completed_at, true)}</span>
-                  </>
+              {ticket ? (
+                <>
+                  <div className="flex flex-col gap-5">
+              {/* Description area (original order): "Created by" first,
+                  then the title, then the description text — all before
+                  Properties. Title 16px/22px/500, body 14px/400 in the
+                  secondary colour. The "Created by" row only renders
+                  when the ticket actually has a creator (tickets made
+                  before the field existed carry NULL — never invented). */}
+              <div className="flex flex-col gap-3">
+                {ticket.created_by ? (
+                  <div className="flex items-center gap-2 text-sm font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">
+                    <span className="text-[#737373] dark:text-[#A3A3A3]">Created by</span>
+                    <InitialsAvatar name={ticket.created_by} size={18} />
+                    <span>{ticket.created_by}</span>
+                  </div>
+                ) : null}
+                {editing ? (
+                  <div>
+                    <input
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-base font-medium outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
+                    />
+                    {titleError && <p className="mt-1 text-xs text-red-600">{titleError}</p>}
+                  </div>
+                ) : (
+                  <h2 className="wrap-anywhere text-base font-medium leading-[22px] text-[#0A0A0A] dark:text-[#F5F5F5]">
+                    {ticket.title}
+                  </h2>
                 )}
-              </div>
-
-              {/* Fields — custom menus (original: icon/color-block dropdowns,
-                  w-220px; assignee menu has checkboxes + 18px avatars). */}
-              <div className="grid grid-cols-2 gap-3">
-                <DrawerField label="状态" anchorRef={statusBtnRef} disabled={saving} onClick={toggleFieldMenu('status')}>
-                  <StatusIcon status={ticket.status} className="shrink-0 text-[#8A8A8A] dark:text-[#A3A3A3]" />
-                  <span className="truncate">{STATUS_LABELS[ticket.status]}</span>
-                </DrawerField>
-                <Menu open={openFieldMenu === 'status'} onClose={() => setOpenFieldMenu(null)} anchorRef={statusBtnRef} width={220} items={statusMenuItems} />
-                <DrawerField label="优先级" anchorRef={priorityBtnRef} disabled={saving} onClick={toggleFieldMenu('priority')}>
-                  <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${PRIORITY_BADGE[ticket.priority]}`}>
-                    {PRIORITY_LABELS[ticket.priority]}
-                  </span>
-                </DrawerField>
-                <Menu open={openFieldMenu === 'priority'} onClose={() => setOpenFieldMenu(null)} anchorRef={priorityBtnRef} width={220} items={priorityMenuItems} />
-                <DrawerField label="项目" anchorRef={projectBtnRef} disabled={saving} onClick={toggleFieldMenu('project')}>
-                  <Icon name="folder" size={16} className="shrink-0 text-[#8A8A8A] dark:text-[#A3A3A3]" />
-                  <span className="truncate">{project?.name ?? '—'}</span>
-                </DrawerField>
-                <Menu open={openFieldMenu === 'project'} onClose={() => setOpenFieldMenu(null)} anchorRef={projectBtnRef} width={220} items={projectMenuItems} />
-                <label className="block">
-                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">分类</span>
-                  <input
-                    defaultValue={ticket.category}
-                    key={ticket.id + (ticket.category ?? '')}
-                    disabled={saving}
-                    onBlur={(e) => {
-                      if (e.target.value !== ticket.category) void patch({ category: e.target.value })
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                    }}
-                    placeholder="例如：座席切换"
-                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-                  />
-                </label>
-                <DrawerField label="负责人" anchorRef={assigneeBtnRef} disabled={saving} onClick={toggleFieldMenu('assignee')}>
-                  {assignees.length > 0 ? (
-                    <AvatarStack users={assignees} />
-                  ) : (
-                    <span className="text-[#A3A3A3] dark:text-[#737373]">未指派</span>
-                  )}
-                </DrawerField>
-                <Menu open={openFieldMenu === 'assignee'} onClose={() => setOpenFieldMenu(null)} anchorRef={assigneeBtnRef} width={220} items={assigneeMenuItems} />
-              </div>
-
-              {/* Token chart — right after the fields so it is visible
-                  without scrolling deep into the drawer. The chart keeps
-                  one fixed-height shell in all three states (loading /
-                  empty / loaded, see TokenChart), so its height never
-                  changes when the async stats arrive and the content
-                  below it does not move. */}
-              <div>
-                <span className="mb-2 block text-xs text-[#737373] dark:text-[#A3A3A3]">
-                  Token 消耗 · {project?.name ?? ''}
-                </span>
-                <TokenChart stats={tokenStats} loading={tokenLoading && !tokenStats} />
-              </div>
-
-              {/* Description */}
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs text-[#737373] dark:text-[#A3A3A3]">描述</span>
-                  {!editing && (
-                    <button
-                      onClick={() => setEditing(true)}
-                      className="text-xs text-[#2476FF] hover:underline"
-                    >
-                      编辑
-                    </button>
-                  )}
-                </div>
                 {editing ? (
                   <div>
                     <textarea
@@ -893,7 +846,7 @@ export default function TicketDrawer({
                     </div>
                   </div>
                 ) : (
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-[#262626] dark:text-[#E5E5E5]">
+                  <div className="whitespace-pre-wrap text-sm leading-5 text-[#737373] dark:text-[#A3A3A3]">
                     {ticket.description ? (
                       <RichText text={ticket.description} />
                     ) : (
@@ -903,41 +856,111 @@ export default function TicketDrawer({
                 )}
               </div>
 
-              {/* Resources */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[#737373] dark:text-[#A3A3A3]">资源</span>
-                <a
-                  href="https://www.figma.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-full bg-[#EAF1FF] px-2.5 py-1 text-xs font-medium text-[#2476FF] hover:bg-[#DCE8FF] dark:bg-[#2476FF]/20 dark:text-[#9CC3FF]"
-                >
-                  figma.com
-                </a>
+              {/* Properties (original): one horizontal row — the label
+                  sits left (70px) and the values wrap beside it. The
+                  category input (kept, per the user) rides along as a
+                  fifth inline value. */}
+              <div className="flex items-start gap-5">
+                <span className="w-[70px] shrink-0 pt-0.5 text-sm font-medium text-[#737373] dark:text-[#A3A3A3]">
+                  Properties
+                </span>
+                <div className="flex min-w-0 flex-1 flex-wrap gap-x-5 gap-y-3">
+                  <DrawerField anchorRef={statusBtnRef} disabled={saving} onClick={toggleFieldMenu('status')}>
+                    <StatusIcon status={ticket.status} className="shrink-0 text-[#8A8A8A] dark:text-[#A3A3A3]" />
+                    <span className="truncate">{STATUS_LABELS[ticket.status]}</span>
+                  </DrawerField>
+                  <Menu open={openFieldMenu === 'status'} onClose={() => setOpenFieldMenu(null)} anchorRef={statusBtnRef} width={220} items={statusMenuItems} />
+                  <DrawerField anchorRef={priorityBtnRef} disabled={saving} onClick={toggleFieldMenu('priority')}>
+                    <span className={`rounded-md px-[7px] py-0.5 text-[11px] font-medium transition-colors duration-150 ${PRIORITY_BADGE[ticket.priority]}`}>
+                      {PRIORITY_LABELS[ticket.priority]}
+                    </span>
+                  </DrawerField>
+                  <Menu open={openFieldMenu === 'priority'} onClose={() => setOpenFieldMenu(null)} anchorRef={priorityBtnRef} width={220} items={priorityMenuItems} />
+                  <DrawerField anchorRef={assigneeBtnRef} disabled={saving} onClick={toggleFieldMenu('assignee')}>
+                    {assignees.length > 0 ? (
+                      <>
+                        <AvatarStack users={assignees} size={18} />
+                        <span className="truncate">{assignees[0].name}</span>
+                        {assignees.length > 1 && (
+                          <span className="text-[#737373] dark:text-[#A3A3A3]">+{assignees.length - 1}</span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="user" size={16} className="shrink-0 text-[#A3A3A3]" />
+                        <span className="text-[#A3A3A3]">Assignee</span>
+                      </>
+                    )}
+                  </DrawerField>
+                  <Menu open={openFieldMenu === 'assignee'} onClose={() => setOpenFieldMenu(null)} anchorRef={assigneeBtnRef} width={220} items={assigneeMenuItems} />
+                  <DrawerField anchorRef={projectBtnRef} disabled={saving} onClick={toggleFieldMenu('project')}>
+                    <Icon name="folder" size={16} className="shrink-0 text-[#8A8A8A] dark:text-[#A3A3A3]" />
+                    <span className="truncate">{project?.name ?? '—'}</span>
+                  </DrawerField>
+                  <Menu open={openFieldMenu === 'project'} onClose={() => setOpenFieldMenu(null)} anchorRef={projectBtnRef} width={220} items={projectMenuItems} />
+                  <input
+                    defaultValue={ticket.category}
+                    key={ticket.id + (ticket.category ?? '')}
+                    disabled={saving}
+                    onBlur={(e) => {
+                      if (e.target.value !== ticket.category) void patch({ category: e.target.value })
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    }}
+                    placeholder="例如：座席切换"
+                    aria-label="分类"
+                    className="w-32 min-w-0 rounded-md bg-transparent px-1 py-0.5 text-sm font-medium text-[#0A0A0A] outline-none placeholder:text-[#A3A3A3] hover:bg-[#F7F7F7] focus:bg-white focus:ring-1 focus:ring-[#E5E5E5] dark:text-[#F5F5F5] dark:hover:bg-[#262626] dark:focus:bg-[#202020] dark:focus:ring-[#2E2E2E]"
+                  />
+                </div>
               </div>
 
-              {/* Comments */}
-              <div>
-                <span className="mb-2 block text-xs text-[#737373] dark:text-[#A3A3A3]">
+              {/* Token chart — after Properties, before the comments.
+                  The card carries its own title ("Token 总消耗"); the
+                  chart keeps one fixed-height shell in all three states
+                  (loading / empty / loaded, see TokenChart), so its
+                  height never changes when the async stats arrive and
+                  the content below it does not move. */}
+              <TokenChart stats={tokenStats} loading={tokenLoading && !tokenStats} />
+
+              {/* Comments (original): pinned to the bottom with mt-auto,
+                  a timeline (a vertical line joins the comments, hidden
+                  after the last one), 24px avatars, the text starting
+                  29px in (avatar 24 + 5 gap), 13px tertiary time. The
+                  composer is a fixed-height textarea with a circular
+                  send button at its bottom-right corner — no author row,
+                  no "发布" button. Image paste/upload stays (the user
+                  asked for it earlier); comments are still posted as
+                  the logged-in account. */}
+              </div>
+              <section aria-label="Comments" className="mt-auto flex flex-col gap-2.5">
+                <span className="text-xs text-[#737373] dark:text-[#A3A3A3]">
                   评论（{comments.length}）
                 </span>
-                <div className="space-y-3">
-                  {comments.map((c) => {
+                <div className="flex flex-col gap-3">
+                  {comments.map((c, i) => {
                     const author = users.find((u) => u.id === c.author_id)
+                    const isLast = i === comments.length - 1
                     return (
-                      <div key={c.id} className="flex gap-2.5">
+                      <div key={c.id} className="relative flex gap-[5px]">
+                        {!isLast && (
+                          <span
+                            aria-hidden
+                            className="absolute -bottom-3 left-[11.5px] top-9 w-px bg-[#EBEBEB] dark:bg-[#262626]"
+                          />
+                        )}
                         {author ? (
-                          <Avatar user={author} size={28} />
+                          <Avatar user={author} size={24} />
                         ) : (
                           // Posted by a logged-in account (author_id
                           // "account:<id>"): show the name's initials,
                           // never a "?" placeholder.
-                          <InitialsAvatar name={c.author_name} size={28} />
+                          <InitialsAvatar name={c.author_name} size={24} />
                         )}
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="text-xs font-medium text-[#262626] dark:text-[#E5E5E5]">
                             {c.author_name}
-                            <span className="ml-2 font-normal text-[#737373]">
+                            <span className="ml-2 text-[13px] font-normal text-[#A3A3A3]">
                               {formatRelative(c.created_at)}
                             </span>
                           </div>
@@ -949,7 +972,7 @@ export default function TicketDrawer({
                     )
                   })}
                   {commentsLoading && comments.length === 0 ? (
-                    <div className="space-y-3" aria-hidden>
+                    <div className="flex flex-col gap-3" aria-hidden>
                       <div className="h-9 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
                       <div className="h-9 w-2/3 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
                     </div>
@@ -959,15 +982,7 @@ export default function TicketDrawer({
                     )
                   )}
                 </div>
-                <div className="mt-3 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] p-3 dark:border-[#2E2E2E] dark:bg-[#202020]">
-                  <div className="mb-2 flex items-center gap-2 text-sm text-[#262626] dark:text-[#E5E5E5]">
-                    {currentUser ? (
-                      <InitialsAvatar name={currentUser.name} size={24} />
-                    ) : null}
-                    <span>
-                      以 {currentUser ? currentUser.name : '当前账号'} 的身份评论
-                    </span>
-                  </div>
+                <div className="relative">
                   <textarea
                     ref={commentRef}
                     value={commentBody}
@@ -975,47 +990,55 @@ export default function TicketDrawer({
                     onPaste={commentPaste.onPaste}
                     onDrop={commentPaste.onDrop}
                     onDragOver={commentPaste.onDragOver}
-                    rows={3}
+                    rows={1}
+                    maxLength={2000}
                     placeholder="写下评论…"
-                    className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
+                    className="h-[72px] w-full resize-none rounded-xl bg-[#F7F7F7] px-3 pb-10 pt-3 text-sm outline-none dark:bg-[#202020] dark:text-[#F5F5F5]"
                   />
-                  <ImageUploadBar
-                    uploading={commentPaste.uploading}
-                    error={commentPaste.uploadError}
-                    fileInputRef={commentPaste.fileInputRef}
-                    accept={commentPaste.accept}
-                    onFileInputChange={commentPaste.onFileInputChange}
-                    onPick={commentPaste.openFilePicker}
-                  />
-                  <div className="mt-2 text-right">
-                    <button
-                      onClick={() => void publishComment()}
-                      disabled={!commentBody.trim() || saving || !currentUser}
-                      className="rounded-lg bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] px-4 py-1.5 text-sm font-medium text-white hover:brightness-95 disabled:opacity-40"
-                    >
-                      发布
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => void publishComment()}
+                    disabled={!commentBody.trim() || saving || !currentUser}
+                    className="absolute bottom-2 end-2 flex size-6 items-center justify-center rounded-full bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] text-white hover:brightness-95 disabled:opacity-40"
+                    aria-label="发送评论"
+                  >
+                    <Icon name="arrowUp" size={14} />
+                  </button>
                 </div>
-              </div>
-
-            </div>
+                <ImageUploadBar
+                  uploading={commentPaste.uploading}
+                  error={commentPaste.uploadError}
+                  fileInputRef={commentPaste.fileInputRef}
+                  accept={commentPaste.accept}
+                  onFileInputChange={commentPaste.onFileInputChange}
+                  onPick={commentPaste.openFilePicker}
+                />
+              </section>
+            </>
           ) : (
             // Only reachable when the board payload had no ticket for this
             // id: grey pulse blocks keep the panel from flashing blank
             // white while the fetch resolves.
-            <div className="space-y-5" aria-hidden>
+            <div className="flex flex-col gap-5" aria-hidden>
               <div className="h-7 w-3/4 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
-              <div className="h-4 w-1/2 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
-              <div className="grid grid-cols-2 gap-3">
-                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
-                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
-                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
-                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
-              </div>
+              <div className="h-6 w-full animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
               <div className="h-44 animate-pulse rounded-xl bg-[#EFEFEF] dark:bg-[#262626]" />
+              <div className="flex flex-col gap-3">
+                <div className="h-9 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+                <div className="h-9 w-2/3 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+              </div>
             </div>
           )}
+            </div>
+          </div>
+          {/* Scroll fade (original): three frosted layers at the top of
+              the content area — 1px blur over the full area, 4px blur
+              over the top 16px, and a surface-colour gradient. Opacity
+              is scrollTop / 24, written straight to the DOM on scroll. */}
+          <div ref={fadeRef} aria-hidden className="pointer-events-none absolute inset-0 z-10 opacity-0">
+            <div className="absolute inset-0 backdrop-blur-[1px]" />
+            <div className="absolute inset-x-0 top-0 h-4 backdrop-blur-[4px]" />
+            <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-white to-transparent dark:from-[#171717]" />
+          </div>
         </div>
           </aside>
         </div>

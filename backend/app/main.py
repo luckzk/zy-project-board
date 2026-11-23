@@ -252,6 +252,8 @@ def ticket_out(t: Ticket) -> TicketOut:
         priority=t.priority,
         project_id=t.project_id,
         assignee_ids=json.loads(t.assignee_ids or "[]"),
+        created_by=t.created_by,
+        is_favorite=bool(t.is_favorite),
         created_at=t.created_at,
         updated_at=t.updated_at,
         completed_at=t.completed_at,
@@ -616,10 +618,24 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
     return ticket_out(get_ticket_or_404(db, ticket_id))
 
 
+@app.get("/api/tickets/by-code/{code}", response_model=TicketOut)
+def get_ticket_by_code(code: str, db: Session = Depends(get_db)):
+    """One ticket by its public code (e.g. FE-87), for deep links.
+
+    The drawer link is ``/#ticket=<code>``; the frontend resolves the
+    code to an id through this endpoint. Unknown codes are 404.
+    """
+    t = db.query(Ticket).filter(Ticket.code == code).first()
+    if t is None:
+        raise HTTPException(status_code=404, detail="ticket not found")
+    return ticket_out(t)
+
+
 @app.post("/api/tickets", response_model=TicketOut, status_code=201)
 def create_ticket(
     payload: TicketCreate,
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
     _key: str = Depends(require_write_auth),
 ):
     title = (payload.title or "").strip()
@@ -633,6 +649,11 @@ def create_ticket(
     if prefix not in PREFIXES:
         raise HTTPException(status_code=422, detail=f"invalid prefix: {prefix}")
     now = datetime.utcnow()
+    # Creator display name, same rule as comment authorship: a Bearer
+    # JWT forces the logged-in account's name; an API-Key caller may
+    # pass created_by, otherwise it is recorded as "API".
+    account = _jwt_account_or_none(authorization, db)
+    created_by = account.name if account is not None else (payload.created_by or "API")
     t = Ticket(
         code=next_code(db, prefix),
         category=payload.category or "",
@@ -642,6 +663,8 @@ def create_ticket(
         priority=payload.priority,
         project_id=payload.project_id,
         assignee_ids=json.dumps(payload.assignee_ids or [], ensure_ascii=False),
+        created_by=created_by,
+        is_favorite=False,
         created_at=now,
         updated_at=now,
         completed_at=now if payload.status == "done" else None,
@@ -701,6 +724,10 @@ def update_ticket(
         t.assignee_ids = json.dumps(data["assignee_ids"] or [], ensure_ascii=False)
     if "position" in data and data["position"] is not None:
         t.position = data["position"]
+    if "is_favorite" in data and data["is_favorite"] is not None:
+        t.is_favorite = bool(data["is_favorite"])
+    # created_by is read-only: it is not a TicketUpdate field, so a
+    # client-sent value never reaches here.
     t.updated_at = datetime.utcnow()
     # Bell notifications, same transaction as the ticket write:
     # - a real status change (not a re-save of the same status)

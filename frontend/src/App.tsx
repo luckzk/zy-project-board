@@ -268,6 +268,34 @@ export default function App() {
     [closePopover],
   )
 
+  // Deep link (original format): /#ticket=<code> opens that ticket's
+  // drawer. Parsed on startup, on hashchange, and right after login
+  // (the hash survives the login page — the login gate never clears
+  // it). Clicking a card never writes the hash, and closing the drawer
+  // never clears it, so a refresh re-opens the same ticket. Unknown
+  // codes are silently ignored: the board just loads.
+  const deepLinkCodeRef = useRef<string | null>(null)
+  const openTicketFromHash = useCallback(async () => {
+    const m = window.location.hash.match(/^#ticket=([^&]+)/)
+    if (!m) return
+    const code = decodeURIComponent(m[1])
+    if (deepLinkCodeRef.current === code) return
+    deepLinkCodeRef.current = code
+    try {
+      const t = await api.getTicketByCode(code)
+      setSelectedTicketId(t.id)
+    } catch {
+      // Unknown code: board only, no error surface.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authUser) return
+    void openTicketFromHash()
+    window.addEventListener('hashchange', openTicketFromHash)
+    return () => window.removeEventListener('hashchange', openTicketFromHash)
+  }, [authUser, openTicketFromHash])
+
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   // The ticket as already known from the board list payload — passed to
   // the drawer so it paints real content on its first frame (no blank

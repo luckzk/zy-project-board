@@ -52,8 +52,9 @@ curl -X POST http://localhost:8001/api/tickets \
 | GET | `/api/t` | Same list as `/api/tickets` |
 | GET | `/api/board` | Columns in order backlog, todo, in_progress, review, done |
 | GET | `/api/tickets/{id}` | One ticket |
-| POST | `/api/tickets` | Create (201). Code auto: `prefix` + `-` + (max suffix + 1); `prefix` defaults to `FE` |
-| PATCH | `/api/tickets/{id}` | Update; moving to `done` sets `completed_at`, moving away clears it |
+| GET | `/api/tickets/by-code/{code}` | One ticket by public code (e.g. `FE-87`); 404 when unknown. Used by the `/#ticket=<code>` deep link |
+| POST | `/api/tickets` | Create (201). Code auto: `prefix` + `-` + (max suffix + 1); `prefix` defaults to `FE`; `created_by` is set from the JWT account name (or the passed value / `"API"` for API-Key calls) |
+| PATCH | `/api/tickets/{id}` | Update; moving to `done` sets `completed_at`, moving away clears it; `is_favorite` toggles the drawer star; `created_by` is read-only and ignored here |
 | DELETE | `/api/tickets/{id}` | Delete (204) |
 | GET | `/api/tickets/{id}/comments` | Comments, oldest first |
 | POST | `/api/tickets/{id}/comments` | Create (201). `body` required; `author_id` defaults to `u-noah` |

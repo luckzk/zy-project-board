@@ -76,19 +76,23 @@ function AvatarFallback({ user, size }: { user: User; size: number }) {
   )
 }
 
-export function AvatarStack({ users, max = 3 }: { users: User[]; max?: number }) {
+export function AvatarStack({ users, max = 3, size = 24 }: { users: User[]; max?: number; size?: number }) {
   const shown = users.slice(0, max)
   const rest = users.length - shown.length
+  const overlap = size <= 18 ? '-ml-1.5' : '-ml-2'
   return (
     <span className="flex items-center">
       {shown.map((u, i) => (
-        <span key={u.id} className={i === 0 ? 'flex' : '-ml-2 flex'}>
-          <Avatar user={u} size={24} />
-          {u.avatar_url ? <AvatarFallback user={u} size={24} /> : null}
+        <span key={u.id} className={i === 0 ? 'flex' : `${overlap} flex`}>
+          <Avatar user={u} size={size} />
+          {u.avatar_url ? <AvatarFallback user={u} size={size} /> : null}
         </span>
       ))}
       {rest > 0 && (
-        <span className="-ml-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#E5E5E5] text-[10px] font-medium text-[#737373] ring-2 ring-white dark:bg-[#262626] dark:text-[#E5E5E5] dark:ring-[#202020]">
+        <span
+          className={`${overlap} inline-flex items-center justify-center rounded-full bg-[#E5E5E5] text-[10px] font-medium text-[#737373] ring-2 ring-white dark:bg-[#262626] dark:text-[#E5E5E5] dark:ring-[#202020]`}
+          style={{ width: size, height: size }}
+        >
           +{rest}
         </span>
       )}

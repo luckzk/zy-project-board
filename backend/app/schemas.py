@@ -130,6 +130,9 @@ class TicketBase(BaseModel):
 class TicketCreate(TicketBase):
     # Optional code prefix: DS | FE | BE. Defaults to "FE" when omitted.
     prefix: Optional[str] = None
+    # Creator display name, honoured only for API-Key callers (MCP /
+    # scripts); with a Bearer JWT the backend forces the account name.
+    created_by: Optional[str] = None
 
 
 class TicketUpdate(BaseModel):
@@ -141,6 +144,8 @@ class TicketUpdate(BaseModel):
     project_id: Optional[str] = None
     assignee_ids: Optional[List[str]] = None
     position: Optional[int] = None
+    is_favorite: Optional[bool] = None
+    # created_by is read-only (set once at creation); PATCH ignores it.
 
 
 class TicketOut(BaseModel):
@@ -153,6 +158,8 @@ class TicketOut(BaseModel):
     priority: str
     project_id: str
     assignee_ids: List[str]
+    created_by: Optional[str] = None
+    is_favorite: bool = False
     created_at: UtcDateTime
     updated_at: UtcDateTime
     completed_at: UtcDateTimeOpt = None

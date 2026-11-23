@@ -42,6 +42,10 @@ export interface Ticket {
   priority: Priority
   project_id: string
   assignee_ids: string[]
+  /** Display name of the creating account; null for tickets created
+   * before this field existed (the drawer hides the row then). */
+  created_by: string | null
+  is_favorite: boolean
   created_at: string
   updated_at: string
   completed_at: string | null
@@ -110,6 +114,7 @@ export interface UpdateTicketInput {
   project_id?: string
   assignee_ids?: string[]
   position?: number
+  is_favorite?: boolean
 }
 
 export const STATUS_LABELS: Record<TicketStatus, string> = {
