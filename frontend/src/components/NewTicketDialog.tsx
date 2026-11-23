@@ -11,10 +11,12 @@ import {
 import { Avatar } from './Avatar'
 import { DialogGenie } from './DialogGenie'
 import Icon from './Icon'
+import ImageUploadBar from './ImageUploadBar'
 import { Menu } from './Menu'
 import type { MenuItemDef } from './Menu'
 import { StatusIcon } from './StatusIcon'
 import { PRIORITY_BADGE } from './TicketCard'
+import { useImagePaste } from '../lib/useImagePaste'
 
 /** Borderless field trigger (original create-ticket-modal-module `rx`):
  * no border, no background, icon + value, hover bg; menu is w-220px. */
@@ -93,6 +95,11 @@ export default function NewTicketDialog({
   const assigneeRef = useRef<HTMLButtonElement>(null)
   const projectRef = useRef<HTMLButtonElement>(null)
   const prefixRef = useRef<HTMLButtonElement>(null)
+
+  // Image paste / drag-drop / file-picker upload for the description
+  // (shared hook — see lib/useImagePaste).
+  const descRef = useRef<HTMLTextAreaElement | null>(null)
+  const descPaste = useImagePaste(descRef, description, setDescription)
 
   useEffect(() => {
     if (open && projects.length > 0 && !projectId) setProjectId(projects[0].id)
@@ -303,14 +310,26 @@ export default function NewTicketDialog({
                     {description || '描述'}​
                   </span>
                   <textarea
+                    ref={descRef}
                     rows={1}
                     maxLength={5000}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
+                    onPaste={descPaste.onPaste}
+                    onDrop={descPaste.onDrop}
+                    onDragOver={descPaste.onDragOver}
                     placeholder="描述"
                     className="absolute inset-0 size-full resize-none border-0 bg-transparent p-0 outline-none placeholder:text-[#A3A3A3] dark:placeholder:text-[#737373]"
                   />
                 </div>
+                <ImageUploadBar
+                  uploading={descPaste.uploading}
+                  error={descPaste.uploadError}
+                  fileInputRef={descPaste.fileInputRef}
+                  accept={descPaste.accept}
+                  onFileInputChange={descPaste.onFileInputChange}
+                  onPick={descPaste.openFilePicker}
+                />
               </div>
 
               <div className="flex flex-col gap-3">

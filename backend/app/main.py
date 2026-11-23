@@ -9,13 +9,16 @@ Auth:  writes require header ``X-API-Key`` matching env ``API_KEY``
 import json
 import os
 import re
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import bcrypt
 import jwt
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -38,6 +41,7 @@ from app.schemas import (
     TokenPoint,
     TokenStatsOut,
     UpdateMe,
+    UploadOut,
     UserOut,
     UserSyncError,
     UserSyncIn,
@@ -74,6 +78,24 @@ TOKEN_BASE = [
     780000, 810000, 840000, 860000, 880000, 900000, 930000, 1000000,
 ]
 
+# Image uploads: stored under backend/data/uploads/. In Docker this is
+# /app/data/uploads, inside the ./backend/data volume — so rebuilding the
+# image or recreating the container never loses uploaded files. Never
+# store uploads in /tmp or in the image layer. UPLOAD_DIR can be
+# overridden (smoke tests use a temp dir).
+UPLOAD_DIR = Path(
+    os.environ.get("UPLOAD_DIR", "")
+    or (Path(__file__).resolve().parent.parent / "data" / "uploads")
+)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -97,6 +119,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve uploaded images at /uploads/<uuid>.<ext> (files live in
+# UPLOAD_DIR, inside the persistent volume — see above).
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
 def require_api_key(x_api_key: str | None = Header(default=None)):
@@ -164,6 +190,24 @@ def require_write_auth(
             raise HTTPException(status_code=401, detail="invalid token")
         return {"type": "jwt"}
     raise HTTPException(status_code=401, detail="invalid api key or token")
+
+
+def _jwt_account_or_none(
+    authorization: str | None,
+    db: Session,
+) -> Account | None:
+    """Return the logged-in account when a valid Bearer JWT is present.
+
+    Used by endpoints that behave differently for a logged-in user vs an
+    API-Key caller (e.g. comment authorship). Returns None when there is
+    no Bearer token or the token is invalid.
+    """
+    if authorization and authorization.startswith("Bearer "):
+        try:
+            return get_current_account(authorization, db)
+        except HTTPException:
+            return None
+    return None
 
 
 def user_out(u: DirectoryUser) -> UserOut:
@@ -610,6 +654,40 @@ def delete_ticket(
     return Response(status_code=204)
 
 
+@app.post("/api/uploads", response_model=UploadOut, status_code=201)
+async def upload_image(
+    file: UploadFile = File(...),
+    _auth: dict = Depends(require_write_auth),
+):
+    """Upload one image (jpeg/png/gif/webp, at most 10 MB).
+
+    The file is stored under UPLOAD_DIR (backend/data/uploads, inside the
+    persistent volume) with a uuid filename, and served back at the
+    returned ``/uploads/<name>`` path. Non-image content types and
+    oversized files are rejected with 400.
+    """
+    ext = ALLOWED_IMAGE_TYPES.get((file.content_type or "").lower())
+    if ext is None:
+        raise HTTPException(
+            status_code=400, detail="only jpeg/png/gif/webp images are accepted"
+        )
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail="image exceeds 10 MB")
+        chunks.append(chunk)
+    if total == 0:
+        raise HTTPException(status_code=400, detail="empty file")
+    name = f"{uuid.uuid4().hex}{ext}"
+    (UPLOAD_DIR / name).write_bytes(b"".join(chunks))
+    return UploadOut(url=f"/uploads/{name}")
+
+
 @app.get("/api/tickets/{ticket_id}/comments", response_model=list[CommentOut])
 def list_comments(ticket_id: int, db: Session = Depends(get_db)):
     get_ticket_or_404(db, ticket_id)
@@ -637,17 +715,31 @@ def create_comment(
     ticket_id: int,
     payload: CommentCreate,
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
     _key: str = Depends(require_write_auth),
 ):
     get_ticket_or_404(db, ticket_id)
     body = (payload.body or "").strip()
     if not body:
         raise HTTPException(status_code=422, detail="body is required")
-    author_id = payload.author_id or "u-noah"
+    # Comment authorship rule:
+    # - Called with a Bearer JWT (the browser UI): the author is always
+    #   the logged-in account — author_id "account:<id>", author_name the
+    #   account's display name. A payload author_id is ignored; the UI no
+    #   longer lets the user comment as someone else.
+    # - Called with only the X-API-Key (MCP / scripts): payload author_id
+    #   is honoured as before (defaults to "u-noah").
+    account = _jwt_account_or_none(authorization, db)
+    if account is not None:
+        author_id = f"account:{account.id}"
+        author_name = account.name
+    else:
+        author_id = payload.author_id or "u-noah"
+        author_name = _user_display_name(db, author_id)
     c = Comment(
         ticket_id=ticket_id,
         author_id=author_id,
-        author_name=_user_display_name(db, author_id),
+        author_name=author_name,
         body=body,
         created_at=datetime.utcnow(),
     )

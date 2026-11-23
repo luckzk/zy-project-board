@@ -123,13 +123,38 @@ export const api = {
   deleteTicket: (id: number) =>
     request<void>(`/api/tickets/${id}`, { method: 'DELETE', headers: writeHeaders() }),
   getComments: (id: number) => request<Comment[]>(`/api/tickets/${id}/comments`),
-  addComment: (id: number, author_id: string, body: string) =>
+  addComment: (id: number, body: string, author_id?: string) =>
     request<Comment>(`/api/tickets/${id}/comments`, {
       method: 'POST',
       headers: writeHeaders(),
-      body: JSON.stringify({ author_id, body }),
+      // author_id is only honoured on the API-Key path; with a Bearer JWT
+      // the backend forces the author to the logged-in account.
+      body: JSON.stringify(author_id ? { author_id, body } : { body }),
     }),
   getTokenStats: (id: number) => request<TokenStats>(`/api/tickets/${id}/token-stats`),
+  /** Upload one image; returns the public /uploads/<name> path. */
+  uploadImage: async (file: File): Promise<{ url: string }> => {
+    const form = new FormData()
+    form.append('file', file)
+    const token = getToken()
+    const res = await fetch(`${API_BASE}/api/uploads`, {
+      method: 'POST',
+      // Multipart: let the browser set Content-Type (with boundary).
+      headers: token ? { Authorization: `Bearer ${token}` } : { 'X-API-Key': API_KEY },
+      body: form,
+    })
+    if (!res.ok) {
+      let detail = `上传失败 (${res.status})`
+      try {
+        const data = await res.json()
+        if (data?.detail) detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
+      } catch {
+        // keep generic message
+      }
+      throw new ApiError(res.status, detail)
+    }
+    return (await res.json()) as { url: string }
+  },
 }
 
 export function formatTicketDate(iso: string, done: boolean): string {

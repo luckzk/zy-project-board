@@ -143,6 +143,12 @@ class CommentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UploadOut(BaseModel):
+    """Response of POST /api/uploads: the public path of the stored image."""
+
+    url: str
+
+
 class TokenPoint(BaseModel):
     date: str
     tokens: int

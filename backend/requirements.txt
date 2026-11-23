@@ -1,6 +1,7 @@
 bcrypt
 PyJWT
 fastapi
+python-multipart
 uvicorn[standard]
 sqlalchemy
 pydantic

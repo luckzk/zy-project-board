@@ -3,6 +3,7 @@ import { api, formatTicketDate } from '../api'
 import {
   PRIORITY_LABELS,
   STATUS_LABELS,
+  type AuthUser,
   type Comment,
   type Priority,
   type Project,
@@ -11,7 +12,10 @@ import {
   type TokenStats,
   type User,
 } from '../types'
-import { Avatar, AvatarStack } from './Avatar'
+import { Avatar, AvatarStack, InitialsAvatar } from './Avatar'
+import ImageUploadBar from './ImageUploadBar'
+import RichText from './RichText'
+import { useImagePaste } from '../lib/useImagePaste'
 import TokenChart from './TokenChart'
 import Icon from './Icon'
 import { Menu } from './Menu'
@@ -67,6 +71,7 @@ export default function TicketDrawer({
   initialTicket,
   users,
   projects,
+  currentUser,
   onClose,
   onChanged,
 }: {
@@ -78,6 +83,8 @@ export default function TicketDrawer({
   initialTicket: Ticket | null
   users: User[]
   projects: Project[]
+  /** The logged-in account: comments are always posted as this user. */
+  currentUser: AuthUser | null
   onClose: () => void
   onChanged: () => void
 }) {
@@ -97,9 +104,9 @@ export default function TicketDrawer({
   const [editing, setEditing] = useState(false)
   const [titleError, setTitleError] = useState('')
 
-  // New comment
+  // New comment (always posted as the logged-in account — there is no
+  // author picker anymore; the backend forces the JWT account).
   const [commentBody, setCommentBody] = useState('')
-  const [commentAuthor, setCommentAuthor] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [starred, setStarred] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -113,7 +120,12 @@ export default function TicketDrawer({
   const projectBtnRef = useRef<HTMLButtonElement>(null)
   const assigneeBtnRef = useRef<HTMLButtonElement>(null)
 
-  // Genie open/close (ported from the original's ticket-detail modal):
+  // Image paste / drag-drop / file-picker upload, shared by the
+  // description editor and the comment box (see lib/useImagePaste).
+  const editDescRef = useRef<HTMLTextAreaElement | null>(null)
+  const descPaste = useImagePaste(editDescRef, editDesc, setEditDesc)
+  const commentRef = useRef<HTMLTextAreaElement | null>(null)
+  const commentPaste = useImagePaste(commentRef, commentBody, setCommentBody)
   // the panel is cloned, sliced into horizontal bands and warped with a
   // matrix3d funnel toward a point just outside its bottom-right corner
   // over 480ms. `closing` starts the reverse warp; the parent only clears
@@ -473,10 +485,6 @@ export default function TicketDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId])
 
-  useEffect(() => {
-    if (users.length > 0 && !commentAuthor) setCommentAuthor(users[0].id)
-  }, [users, commentAuthor])
-
   if (!mounted) return null
 
   async function patch(patch: Partial<Ticket>) {
@@ -507,11 +515,13 @@ export default function TicketDrawer({
   }
 
   async function publishComment() {
-    if (!ticket || !commentBody.trim() || !commentAuthor) return
+    if (!ticket || !commentBody.trim() || !currentUser) return
     setSaving(true)
     setError(null)
     try {
-      const c = await api.addComment(ticket.id, commentAuthor, commentBody.trim())
+      // No author_id: with the JWT the backend forces the comment to
+      // the logged-in account.
+      const c = await api.addComment(ticket.id, commentBody.trim())
       setComments((prev) => [...prev, c])
       setCommentBody('')
     } catch (e) {
@@ -826,10 +836,22 @@ export default function TicketDrawer({
                 {editing ? (
                   <div>
                     <textarea
+                      ref={editDescRef}
                       value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
+                      onPaste={descPaste.onPaste}
+                      onDrop={descPaste.onDrop}
+                      onDragOver={descPaste.onDragOver}
                       rows={5}
                       className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
+                    />
+                    <ImageUploadBar
+                      uploading={descPaste.uploading}
+                      error={descPaste.uploadError}
+                      fileInputRef={descPaste.fileInputRef}
+                      accept={descPaste.accept}
+                      onFileInputChange={descPaste.onFileInputChange}
+                      onPick={descPaste.openFilePicker}
                     />
                     <div className="mt-2 flex gap-2">
                       <button
@@ -853,9 +875,13 @@ export default function TicketDrawer({
                     </div>
                   </div>
                 ) : (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#262626] dark:text-[#E5E5E5]">
-                    {ticket.description || '暂无描述'}
-                  </p>
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-[#262626] dark:text-[#E5E5E5]">
+                    {ticket.description ? (
+                      <RichText text={ticket.description} />
+                    ) : (
+                      '暂无描述'
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -885,9 +911,10 @@ export default function TicketDrawer({
                         {author ? (
                           <Avatar user={author} size={28} />
                         ) : (
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#E5E5E5] text-xs text-white">
-                            ?
-                          </span>
+                          // Posted by a logged-in account (author_id
+                          // "account:<id>"): show the name's initials,
+                          // never a "?" placeholder.
+                          <InitialsAvatar name={c.author_name} size={28} />
                         )}
                         <div className="min-w-0">
                           <div className="text-xs font-medium text-[#262626] dark:text-[#E5E5E5]">
@@ -896,7 +923,9 @@ export default function TicketDrawer({
                               {formatRelative(c.created_at)}
                             </span>
                           </div>
-                          <p className="mt-0.5 text-sm text-[#262626] dark:text-[#E5E5E5]">{c.body}</p>
+                          <div className="mt-0.5 whitespace-pre-wrap text-sm text-[#262626] dark:text-[#E5E5E5]">
+                            <RichText text={c.body} />
+                          </div>
                         </div>
                       </div>
                     )
@@ -913,28 +942,37 @@ export default function TicketDrawer({
                   )}
                 </div>
                 <div className="mt-3 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] p-3 dark:border-[#2E2E2E] dark:bg-[#202020]">
-                  <select
-                    value={commentAuthor}
-                    onChange={(e) => setCommentAuthor(e.target.value)}
-                    className="mb-2 w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
-                  >
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        以 {u.name} 的身份评论
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mb-2 flex items-center gap-2 text-sm text-[#262626] dark:text-[#E5E5E5]">
+                    {currentUser ? (
+                      <InitialsAvatar name={currentUser.name} size={24} />
+                    ) : null}
+                    <span>
+                      以 {currentUser ? currentUser.name : '当前账号'} 的身份评论
+                    </span>
+                  </div>
                   <textarea
+                    ref={commentRef}
                     value={commentBody}
                     onChange={(e) => setCommentBody(e.target.value)}
+                    onPaste={commentPaste.onPaste}
+                    onDrop={commentPaste.onDrop}
+                    onDragOver={commentPaste.onDragOver}
                     rows={3}
                     placeholder="写下评论…"
                     className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   />
+                  <ImageUploadBar
+                    uploading={commentPaste.uploading}
+                    error={commentPaste.uploadError}
+                    fileInputRef={commentPaste.fileInputRef}
+                    accept={commentPaste.accept}
+                    onFileInputChange={commentPaste.onFileInputChange}
+                    onPick={commentPaste.openFilePicker}
+                  />
                   <div className="mt-2 text-right">
                     <button
                       onClick={() => void publishComment()}
-                      disabled={!commentBody.trim() || saving}
+                      disabled={!commentBody.trim() || saving || !currentUser}
                       className="rounded-lg bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] px-4 py-1.5 text-sm font-medium text-white hover:brightness-95 disabled:opacity-40"
                     >
                       发布

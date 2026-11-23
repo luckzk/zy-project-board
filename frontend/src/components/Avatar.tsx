@@ -32,6 +32,38 @@ export function Avatar({ user, size = 24 }: { user: User; size?: number }) {
   )
 }
 
+const INITIAL_COLORS = ['#2476FF', '#7C3AED', '#059669', '#D97706', '#DB2777', '#0891B2']
+
+/** Initials from a display name: "Maya Chen" -> "MC", "演示用户" -> "演示". */
+export function initialsOf(name: string): string {
+  const clean = name.trim()
+  if (!clean) return '?'
+  const parts = clean.split(/\s+/)
+  if (parts.length > 1) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return clean.slice(0, 2)
+}
+
+function colorOf(name: string): string {
+  let h = 0
+  for (const ch of name) h = (h * 31 + (ch.codePointAt(0) ?? 0)) >>> 0
+  return INITIAL_COLORS[h % INITIAL_COLORS.length]
+}
+
+/** Initials-circle avatar for authors who are not in the people
+ * directory (e.g. a comment posted by a logged-in account): never
+ * renders a "?" placeholder. */
+export function InitialsAvatar({ name, size = 28 }: { name: string; size?: number }) {
+  return (
+    <span
+      title={name}
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-medium text-white"
+      style={{ backgroundColor: colorOf(name), width: size, height: size, fontSize: size * 0.42 }}
+    >
+      {initialsOf(name)}
+    </span>
+  )
+}
+
 function AvatarFallback({ user, size }: { user: User; size: number }) {
   return (
     <span

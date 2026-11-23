@@ -692,6 +692,7 @@ export default function App() {
         initialTicket={selectedTicket}
         users={activeUsers}
         projects={projects}
+        currentUser={authUser}
         onClose={() => setSelectedTicketId(null)}
         onChanged={() => void refreshBoard()}
       />

@@ -962,6 +962,79 @@
         }
       }
     },
+    "/api/uploads": {
+      "post": {
+        "summary": "Upload Image",
+        "description": "Upload one image (jpeg/png/gif/webp, at most 10 MB).\n\nThe file is stored under UPLOAD_DIR (backend/data/uploads, inside the\npersistent volume) with a uuid filename, and served back at the\nreturned ``/uploads/<name>`` path. Non-image content types and\noversized files are rejected with 400.",
+        "operationId": "upload_image_api_uploads_post",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_image_api_uploads_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tickets/{ticket_id}/comments": {
       "get": {
         "summary": "List Comments",
@@ -1018,22 +1091,6 @@
             }
           },
           {
-            "name": "x-api-key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -1047,6 +1104,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
             }
           }
         ],
@@ -1264,6 +1337,20 @@
           "columns"
         ],
         "title": "BoardOut"
+      },
+      "Body_upload_image_api_uploads_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_image_api_uploads_post"
       },
       "ChangePassword": {
         "properties": {
@@ -1677,6 +1764,20 @@
           "name"
         ],
         "title": "UpdateMe"
+      },
+      "UploadOut": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "UploadOut",
+        "description": "Response of POST /api/uploads: the public path of the stored image."
       },
       "UserOut": {
         "properties": {

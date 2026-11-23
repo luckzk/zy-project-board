@@ -79,11 +79,24 @@ npm run dev
 | PATCH | `/api/tickets/{id}` | 更新工单（含改状态 + 位置，即拖拽移动） |
 | DELETE | `/api/tickets/{id}` | 删除工单 |
 | GET | `/api/tickets/{id}/comments` | 工单评论列表 |
-| POST | `/api/tickets/{id}/comments` | 添加评论 |
+| POST | `/api/tickets/{id}/comments` | 添加评论（见下：评论身份规则） |
+| POST | `/api/uploads` | 上传一张图片（multipart，见下） |
+| GET | `/uploads/{文件名}` | 取回上传的图片 |
 | GET | `/api/tickets/{id}/token-stats` | 工单 Token 消耗统计 |
 | GET | `/openapi.json` | OpenAPI 规范 |
 
 完整字段与枚举值见 `openapi.json` 与 `llms.txt`。
+
+### 图片上传
+
+描述（新建工单 / 抽屉内编辑）和评论框都支持粘贴图片（Ctrl+V / Cmd+V）、把图片拖进来，或点「上传图片」选文件。图片先上传到 `POST /api/uploads`（multipart，`file` 字段；只接受 jpeg/png/gif/webp，单张 ≤10MB，否则 400），成功后在光标处插入 `![图片](/uploads/<uuid>.<ext>)`，展示时渲染成真正的图片（点开新标签页看原图）。
+
+图片存在 `backend/data/uploads/`（容器内 `/app/data/uploads`），该目录在 `docker-compose.yml` 的 `./backend/data:/app/data` 持久卷里——重新部署、重建镜像都不会丢文件。文件名是随机 uuid，不用原文件名；只有 `/uploads/` 路径的图片语法才会被渲染成图，其他链接仍是纯文本。
+
+### 评论身份规则
+
+- 浏览器里发评论（Bearer JWT）：作者**强制**记登录账号（`author_id` 为 `account:<账号 id>`，`author_name` 为账号显示名），请求里传的 `author_id` 会被忽略——评论框里也不再有“以谁的身份评论”的选择。
+- 只用 `X-API-Key` 调用（MCP / 脚本，如 MCP 的 `add_comment`）：仍可传 `author_id` 指定作者，不传时默认 `u-noah`，行为不变。
 
 ## AI 使用
 
