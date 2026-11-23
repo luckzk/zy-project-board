@@ -22,8 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.database import get_db, init_db, SessionLocal
-from app.models import Account, Comment, DirectoryUser, Ticket
+from app.database import backfill_notifications, get_db, init_db, SessionLocal
+from app.models import Account, Comment, DirectoryUser, Notification, Ticket
 from app.schemas import (
     AuthLogin,
     AuthOut,
@@ -34,12 +34,15 @@ from app.schemas import (
     ChangePassword,
     CommentCreate,
     CommentOut,
+    MarkAllReadOut,
+    NotificationOut,
     ProjectOut,
     TicketCreate,
     TicketOut,
     TicketUpdate,
     TokenPoint,
     TokenStatsOut,
+    UnreadCountOut,
     UpdateMe,
     UploadOut,
     UserOut,
@@ -103,6 +106,11 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_if_empty(db)
+        # Backfill after seeding: a fresh DB has no tickets to backfill
+        # from until seed_if_empty runs; an existing DB gets its real
+        # history once, because backfill is a no-op when the table is
+        # non-empty.
+        backfill_notifications(db)
         seed_directory_users(db)
         seed_demo_account(db)
     finally:
@@ -249,6 +257,47 @@ def ticket_out(t: Ticket) -> TicketOut:
         completed_at=t.completed_at,
         position=t.position,
     )
+
+
+def notification_out(n: Notification) -> NotificationOut:
+    return NotificationOut(
+        id=n.id,
+        type=n.type,
+        title=n.title,
+        description=n.description or "",
+        ticket_id=n.ticket_id,
+        actor_name=n.actor_name,
+        is_read=bool(n.is_read),
+        created_at=n.created_at,
+    )
+
+
+def _add_notification(
+    db: Session,
+    *,
+    type: str,
+    title: str,
+    description: str = "",
+    ticket_id: int | None = None,
+    actor_name: str | None = None,
+    created_at=None,
+) -> Notification:
+    """Queue a bell notification in the caller's transaction.
+
+    Callers add it to the same session and commit once, so a ticket
+    write and its notification either both land or neither does.
+    """
+    n = Notification(
+        type=type,
+        title=title,
+        description=description,
+        ticket_id=ticket_id,
+        actor_name=actor_name,
+        is_read=False,
+        created_at=created_at or datetime.utcnow(),
+    )
+    db.add(n)
+    return n
 
 
 def get_ticket_or_404(db: Session, ticket_id: int) -> Ticket:
@@ -476,6 +525,13 @@ def sync_users(
             existing.synced_at = now
             if not (item.active is not None and not item.active):
                 updated += 1
+    if created > 0:
+        _add_notification(
+            db,
+            type="system",
+            title=f"同步了 {created} 位新用户",
+            description=f"来源：{source}",
+        )
     db.commit()
     return UserSyncOut(
         created=created, updated=updated, deactivated=deactivated, errors=errors
@@ -592,6 +648,14 @@ def create_ticket(
         position=end_position(db, payload.status),
     )
     db.add(t)
+    db.flush()  # assign t.id so the notification can link to the ticket
+    _add_notification(
+        db,
+        type="ticket",
+        title=f"创建了票据 {t.code}",
+        description=title,
+        ticket_id=t.id,
+    )
     db.commit()
     db.refresh(t)
     return ticket_out(t)
@@ -610,6 +674,8 @@ def update_ticket(
         raise HTTPException(status_code=422, detail=f"invalid status: {data['status']}")
     if "priority" in data and data["priority"] not in PRIORITIES:
         raise HTTPException(status_code=422, detail=f"invalid priority: {data['priority']}")
+    old_status = t.status
+    old_assignees = set(json.loads(t.assignee_ids or "[]"))
     if "title" in data:
         title = (data["title"] or "").strip()
         if not title:
@@ -636,6 +702,28 @@ def update_ticket(
     if "position" in data and data["position"] is not None:
         t.position = data["position"]
     t.updated_at = datetime.utcnow()
+    # Bell notifications, same transaction as the ticket write:
+    # - a real status change (not a re-save of the same status)
+    # - each newly assigned person (removals and unchanged assignees
+    #   do not notify)
+    if "status" in data and data["status"] != old_status:
+        _add_notification(
+            db,
+            type="ticket",
+            title=f"{t.code} 移入{STATUS_LABELS[data['status']]}",
+            description=t.title,
+            ticket_id=t.id,
+        )
+    if "assignee_ids" in data:
+        for uid in sorted(set(json.loads(t.assignee_ids or "[]")) - old_assignees):
+            _add_notification(
+                db,
+                type="mention",
+                title=f"你被指派到 {t.code}",
+                description=t.title,
+                ticket_id=t.id,
+                actor_name=_user_display_name(db, uid),
+            )
     db.commit()
     db.refresh(t)
     return ticket_out(t)
@@ -718,7 +806,7 @@ def create_comment(
     authorization: str | None = Header(default=None),
     _key: str = Depends(require_write_auth),
 ):
-    get_ticket_or_404(db, ticket_id)
+    ticket = get_ticket_or_404(db, ticket_id)
     body = (payload.body or "").strip()
     if not body:
         raise HTTPException(status_code=422, detail="body is required")
@@ -744,6 +832,14 @@ def create_comment(
         created_at=datetime.utcnow(),
     )
     db.add(c)
+    _add_notification(
+        db,
+        type="ticket",
+        title=f"{ticket.code} 有新评论",
+        description=body[:80],
+        ticket_id=ticket.id,
+        actor_name=author_name,
+    )
     db.commit()
     db.refresh(c)
     return CommentOut(
@@ -771,3 +867,69 @@ def token_stats(ticket_id: int, db: Session = Depends(get_db)):
     return TokenStatsOut(
         ticket_id=ticket_id, total_tokens=total, delta_pct=delta_pct, points=points
     )
+
+
+# ---- Notifications: the header bell, backed by real board events ----
+#
+# Rows are written by the ticket/comment/sync endpoints in the same
+# transaction as the change they describe (see _add_notification), and
+# backfilled once from real history on first startup. Nothing here is
+# demo data. Reads are public, like the rest of the GETs; marking read
+# is a write, so it takes the X-API-Key or a Bearer JWT.
+
+NOTIF_TYPES = ["ticket", "mention", "system"]
+
+
+@app.get("/api/notifications", response_model=list[NotificationOut])
+def list_notifications(
+    db: Session = Depends(get_db),
+    unread_only: bool = Query(default=False),
+    type: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    if type is not None and type not in NOTIF_TYPES:
+        raise HTTPException(status_code=422, detail=f"invalid type: {type}")
+    query = db.query(Notification).order_by(
+        Notification.created_at.desc(), Notification.id.desc()
+    )
+    if unread_only:
+        query = query.filter(Notification.is_read.is_(False))
+    if type:
+        query = query.filter(Notification.type == type)
+    return [notification_out(n) for n in query.limit(limit).all()]
+
+
+@app.get("/api/notifications/unread-count", response_model=UnreadCountOut)
+def notifications_unread_count(db: Session = Depends(get_db)):
+    return UnreadCountOut(
+        unread=db.query(Notification).filter(Notification.is_read.is_(False)).count()
+    )
+
+
+@app.post("/api/notifications/{notification_id}/read", response_model=NotificationOut)
+def mark_notification_read(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    _auth=Depends(require_write_auth),
+):
+    n = db.query(Notification).filter(Notification.id == notification_id).first()
+    if n is None:
+        raise HTTPException(status_code=404, detail="notification not found")
+    n.is_read = True
+    db.commit()
+    db.refresh(n)
+    return notification_out(n)
+
+
+@app.post("/api/notifications/read-all", response_model=MarkAllReadOut)
+def mark_all_notifications_read(
+    db: Session = Depends(get_db),
+    _auth=Depends(require_write_auth),
+):
+    marked = (
+        db.query(Notification)
+        .filter(Notification.is_read.is_(False))
+        .update({"is_read": True})
+    )
+    db.commit()
+    return MarkAllReadOut(ok=True, marked=marked)

@@ -177,6 +177,28 @@ class CommentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NotificationOut(BaseModel):
+    id: int
+    type: str
+    title: str
+    description: str = ""
+    ticket_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    is_read: bool
+    created_at: UtcDateTime
+
+    model_config = {"from_attributes": True}
+
+
+class UnreadCountOut(BaseModel):
+    unread: int
+
+
+class MarkAllReadOut(BaseModel):
+    ok: bool = True
+    marked: int
+
+
 class UploadOut(BaseModel):
     """Response of POST /api/uploads: the public path of the stored image."""
 

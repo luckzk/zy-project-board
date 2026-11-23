@@ -5,6 +5,7 @@ import {
   PRIORITY_ORDER,
   type AuthUser,
   type BoardColumn,
+  type NotificationItem,
   type Priority,
   type Project,
   type Ticket,
@@ -26,7 +27,7 @@ import { useMountTransition } from './lib/useMountTransition'
 import { HeaderPopover } from './components/HeaderPopover'
 import { Tooltip } from './components/Tooltip'
 import { Checkbox } from './components/Checkbox'
-import { NotificationPopover, NOTIF_ITEMS } from './components/NotificationPopover'
+import { NotificationPopover } from './components/NotificationPopover'
 
 type SortMode = 'manual' | 'priority' | 'title'
 type Popover = 'sort' | 'filter' | 'display' | 'notif' | null
@@ -166,10 +167,69 @@ export default function App() {
   const sortBtnRef = useRef<HTMLButtonElement>(null)
   const filterBtnRef = useRef<HTMLButtonElement>(null)
   const displayBtnRef = useRef<HTMLButtonElement>(null)
-  // Notification read state lives here so the bell badge can show the
-  // unread count; the popover itself only renders it.
-  const [notifRead, setNotifRead] = useState<Set<string>>(new Set())
-  const notifUnreadCount = NOTIF_ITEMS.filter((i) => i.unread && !notifRead.has(i.id)).length
+  // Notification state lives here so the bell badge can show the real
+  // unread count. The badge number comes from the exact
+  // /api/notifications/unread-count endpoint; the popover list is the
+  // latest 100 rows from /api/notifications.
+  const [notifUnread, setNotifUnread] = useState(0)
+  const [notifItems, setNotifItems] = useState<NotificationItem[]>([])
+
+  const refreshNotifUnread = useCallback(async () => {
+    try {
+      const { unread } = await api.getUnreadCount()
+      setNotifUnread(unread)
+    } catch {
+      // Keep the last value; the next poll retries.
+    }
+  }, [])
+
+  const refreshNotifList = useCallback(async () => {
+    try {
+      setNotifItems(await api.getNotifications({ limit: 100 }))
+    } catch {
+      // Keep the last list; the next open retries.
+    }
+  }, [])
+
+  // Light poll: the badge follows real events without a websocket.
+  useEffect(() => {
+    if (!authUser) return
+    void refreshNotifUnread()
+    const timer = window.setInterval(() => void refreshNotifUnread(), 30000)
+    return () => window.clearInterval(timer)
+  }, [authUser, refreshNotifUnread])
+
+  // Opening the bell refreshes the list and the count.
+  useEffect(() => {
+    if (popover === 'notif') {
+      void refreshNotifList()
+      void refreshNotifUnread()
+    }
+  }, [popover, refreshNotifList, refreshNotifUnread])
+
+  const handleNotifMarkRead = useCallback(
+    async (id: number) => {
+      const wasUnread = notifItems.some((n) => n.id === id && !n.is_read)
+      try {
+        const updated = await api.markNotificationRead(id)
+        setNotifItems((cur) => cur.map((n) => (n.id === id ? updated : n)))
+        if (wasUnread) setNotifUnread((cur) => Math.max(0, cur - 1))
+      } catch {
+        // Leave the state; the next poll corrects it.
+      }
+    },
+    [notifItems],
+  )
+
+  const handleNotifMarkAllRead = useCallback(async () => {
+    try {
+      await api.markAllNotificationsRead()
+      setNotifItems((cur) => cur.map((n) => ({ ...n, is_read: true })))
+      setNotifUnread(0)
+    } catch {
+      // Leave the state; the next poll corrects it.
+    }
+  }, [])
 
   const closePopover = useCallback(() => {
     if (!popover) return
@@ -197,6 +257,16 @@ export default function App() {
   // (HeaderPopover handles its own outside-click and Escape
   // dismissal, ignoring clicks on its anchor, so there is no
   // App-level popover effect anymore.)
+
+  // Clicking a notification opens its ticket's drawer (and closes the
+  // popover first so the two don't overlap).
+  const handleNotifOpenTicket = useCallback(
+    (ticketId: number) => {
+      closePopover()
+      setSelectedTicketId(ticketId)
+    },
+    [closePopover],
+  )
 
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   // The ticket as already known from the board list payload — passed to
@@ -467,10 +537,10 @@ export default function App() {
                   onClick={() => togglePopover('notif')}
                 >
                   <Icon name="bell" size={20} />
-                  {notifUnreadCount > 0 && (
+                  {notifUnread > 0 && (
                     <span className="pointer-events-none absolute start-[18px] top-0.5 flex size-4 items-center justify-center rounded-full border-[1.5px] border-white bg-red-600 group-hover:border-0 dark:border-[#202020]">
                       <span className="w-4 text-center text-[10px] font-bold leading-4 text-white">
-                        {notifUnreadCount}
+                        {notifUnread}
                       </span>
                     </span>
                   )}
@@ -537,12 +607,11 @@ export default function App() {
                 onClose={closePopover}
               >
                 <NotificationPopover
-                  users={users}
-                  readIds={notifRead}
-                  onMarkRead={(id) => setNotifRead((cur) => new Set(cur).add(id))}
-                  onMarkAllRead={() =>
-                    setNotifRead(new Set(NOTIF_ITEMS.filter((i) => i.unread).map((i) => i.id)))
-                  }
+                  items={notifItems}
+                  unreadCount={notifUnread}
+                  onMarkRead={(id) => void handleNotifMarkRead(id)}
+                  onMarkAllRead={() => void handleNotifMarkAllRead()}
+                  onOpenTicket={handleNotifOpenTicket}
                 />
               </HeaderPopover>
               <HeaderPopover

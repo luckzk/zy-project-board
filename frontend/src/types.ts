@@ -65,6 +65,19 @@ export interface Comment {
   created_at: string
 }
 
+export type NotificationType = 'ticket' | 'mention' | 'system'
+
+export interface NotificationItem {
+  id: number
+  type: NotificationType
+  title: string
+  description: string
+  ticket_id: number | null
+  actor_name: string | null
+  is_read: boolean
+  created_at: string
+}
+
 export interface TokenPoint {
   date: string
   tokens: number

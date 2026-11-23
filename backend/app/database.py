@@ -33,6 +33,54 @@ def get_db():
         db.close()
 
 
+def backfill_notifications(db) -> int:
+    """One-time backfill of the notifications table from real data.
+
+    One "created" notification per existing ticket and one "new
+    comment" notification per existing comment, each stamped with the
+    row's own real created_at. Runs only while the notifications
+    table is empty, so it is safe to call on every startup; call it
+    *after* seeding (a fresh DB has no tickets to backfill from yet).
+    """
+    from app.models import Comment, Notification, Ticket
+
+    if db.query(Notification).count() > 0:
+        return 0
+    tickets = db.query(Ticket).order_by(Ticket.created_at, Ticket.id).all()
+    codes = {t.id: t.code for t in tickets}
+    count = 0
+    for t in tickets:
+        db.add(
+            Notification(
+                type="ticket",
+                title=f"创建了票据 {t.code}",
+                description=t.title or "",
+                ticket_id=t.id,
+                actor_name=None,
+                is_read=False,
+                created_at=t.created_at,
+            )
+        )
+        count += 1
+    comments = db.query(Comment).order_by(Comment.created_at, Comment.id).all()
+    for c in comments:
+        db.add(
+            Notification(
+                type="ticket",
+                title=f"{codes.get(c.ticket_id, '')} 有新评论",
+                description=(c.body or "")[:80],
+                ticket_id=c.ticket_id,
+                actor_name=c.author_name,
+                is_read=False,
+                created_at=c.created_at,
+            )
+        )
+        count += 1
+    if count:
+        db.commit()
+    return count
+
+
 def init_db():
     from app import models  # noqa: F401  (register models on Base)
 

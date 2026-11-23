@@ -58,6 +58,10 @@ curl -X POST http://localhost:8001/api/tickets \
 | GET | `/api/tickets/{id}/comments` | Comments, oldest first |
 | POST | `/api/tickets/{id}/comments` | Create (201). `body` required; `author_id` defaults to `u-noah` |
 | GET | `/api/tickets/{id}/token-stats` | Token usage, 16 daily points Sep 1–16 2026 |
+| GET | `/api/notifications?unread_only=&type=&limit=` | Notifications, newest first; `type` is `ticket` / `mention` / `system`; default `limit` 20 |
+| GET | `/api/notifications/unread-count` | `{"unread": N}` |
+| POST | `/api/notifications/{id}/read` | Mark one notification read |
+| POST | `/api/notifications/read-all` | Mark all notifications read; returns `{"ok": true, "marked": N}` |
 
 Interactive docs: `http://localhost:8001/docs` — raw schema at `/openapi.json`.
 

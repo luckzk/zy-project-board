@@ -92,9 +92,11 @@ export default function TicketDrawer({
   const [comments, setComments] = useState<Comment[]>([])
   const [tokenStats, setTokenStats] = useState<TokenStats | null>(null)
   // Comments / token stats load in the background and merge in when they
-  // arrive; they never block the main content.
+  // arrive; they never block the main content. tokenLoading starts true
+  // so the very first frame (which the genie clone is made from) already
+  // shows the chart skeleton, not the empty state.
   const [commentsLoading, setCommentsLoading] = useState(false)
-  const [tokenLoading, setTokenLoading] = useState(false)
+  const [tokenLoading, setTokenLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -824,19 +826,16 @@ export default function TicketDrawer({
               </div>
 
               {/* Token chart — right after the fields so it is visible
-                  without scrolling deep into the drawer. */}
+                  without scrolling deep into the drawer. The chart keeps
+                  one fixed-height shell in all three states (loading /
+                  empty / loaded, see TokenChart), so its height never
+                  changes when the async stats arrive and the content
+                  below it does not move. */}
               <div>
                 <span className="mb-2 block text-xs text-[#737373] dark:text-[#A3A3A3]">
                   Token 消耗 · {project?.name ?? ''}
                 </span>
-                {tokenLoading && !tokenStats ? (
-                  <div
-                    className="h-[190px] animate-pulse rounded-xl bg-[#F7F7F7] dark:bg-[#202020]"
-                    aria-hidden
-                  />
-                ) : (
-                  <TokenChart stats={tokenStats} />
-                )}
+                <TokenChart stats={tokenStats} loading={tokenLoading && !tokenStats} />
               </div>
 
               {/* Description */}

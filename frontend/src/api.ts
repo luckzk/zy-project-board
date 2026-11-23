@@ -4,6 +4,8 @@ import type {
   BoardColumn,
   Comment,
   CreateTicketInput,
+  NotificationItem,
+  NotificationType,
   Ticket,
   TokenStats,
   UpdateTicketInput,
@@ -132,6 +134,26 @@ export const api = {
       body: JSON.stringify(author_id ? { author_id, body } : { body }),
     }),
   getTokenStats: (id: number) => request<TokenStats>(`/api/tickets/${id}/token-stats`),
+  // ---- notifications (the header bell) ----
+  getNotifications: (params?: { unread_only?: boolean; type?: NotificationType; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.unread_only) qs.set('unread_only', 'true')
+    if (params?.type) qs.set('type', params.type)
+    if (params?.limit) qs.set('limit', String(params.limit))
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return request<NotificationItem[]>(`/api/notifications${suffix}`)
+  },
+  getUnreadCount: () => request<{ unread: number }>('/api/notifications/unread-count'),
+  markNotificationRead: (id: number) =>
+    request<NotificationItem>(`/api/notifications/${id}/read`, {
+      method: 'POST',
+      headers: writeHeaders(),
+    }),
+  markAllNotificationsRead: () =>
+    request<{ ok: boolean; marked: number }>('/api/notifications/read-all', {
+      method: 'POST',
+      headers: writeHeaders(),
+    }),
   /** Upload one image; returns the public /uploads/<name> path. */
   uploadImage: async (file: File): Promise<{ url: string }> => {
     const form = new FormData()

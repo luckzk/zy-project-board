@@ -31,6 +31,7 @@
 - 鉴权：写操作（POST / PATCH / DELETE）带请求头 `X-API-Key: <API_KEY>`（默认开发值见 `.env.example`）**或**登录后的 `Authorization: Bearer <JWT>`；GET 请求公开，无需鉴权。用户同步接口（`POST /api/users/sync`）只接受 `X-API-Key`。
 - 注册/登录：`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`、`PATCH /api/auth/me`、`POST /api/auth/change-password`；演示账号 `demo@zy-board.local` / `demo1234`。
 - 人员目录：`GET /api/users?source=&active=`；通用同步接口见 `docs/user-sync.md`，MCP 工具为 `sync_users`。
+- 消息通知：`GET /api/notifications?unread_only=&type=&limit=`（最新在前）、`GET /api/notifications/unread-count`、`POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`；通知由建票/改状态/评论/指派/用户同步自动生成，首次启动时从真实票据与评论回填。
 
 ## 规则（必须遵守）
 

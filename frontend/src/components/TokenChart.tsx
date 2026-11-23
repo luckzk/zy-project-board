@@ -32,7 +32,20 @@ function useCountUp(target: number, duration = 400): number {
   return value
 }
 
-export default function TokenChart({ stats }: { stats: TokenStats | null }) {
+/**
+ * Token chart shell: loading, empty and loaded states all render the
+ * exact same geometry (same header rows, same aspect-[320/110] chart
+ * area, same date row), so the block never changes height when the
+ * async stats arrive. Before this, the slot was three different
+ * heights — empty ~54px, skeleton 190px, loaded ~296px at the 609px
+ * drawer width — and the swap landed right at the end of the 480ms
+ * genie, pushing the description/comments down in one frame.
+ * The placeholders use &nbsp; inside inline-block spans so their line
+ * boxes are exactly the loaded text's line heights (text-xs 16px,
+ * text-xl 28px, 11px row 16.5px); the chart area is an aspect-ratio
+ * box because the loaded SVG's height is width * 110/320.
+ */
+export default function TokenChart({ stats, loading }: { stats: TokenStats | null; loading?: boolean }) {
   const points = stats?.points ?? []
   const [hover, setHover] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -84,15 +97,9 @@ export default function TokenChart({ stats }: { stats: TokenStats | null }) {
     return { areaPath: area, segments: segs }
   }, [coords, points])
 
-  if (!stats) {
-    return (
-      <div className="rounded-[20px] border border-[#E5E5E5] bg-[#F7F7F7] p-4 text-sm text-[#737373] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#A3A3A3]">
-        暂无 Token 统计数据
-      </div>
-    )
-  }
+  const isEmpty = !loading && !stats
 
-  const up = stats.delta_pct >= 0
+  const up = (stats?.delta_pct ?? 0) >= 0
   const hoverKey = hover != null ? `point-${hover}` : 'total'
   const hovered = hover != null ? coords[hover] : null
   const hoveredZero = hover != null && points[hover].tokens === 0
@@ -110,80 +117,132 @@ export default function TokenChart({ stats }: { stats: TokenStats | null }) {
       <div className="flex items-baseline justify-between">
         <div>
           <div className="text-xs text-[#737373] dark:text-[#A3A3A3]">
-            {hover != null ? points[hover].date : 'Token 总消耗'}
+            {loading ? (
+              <span className="inline-block w-24 animate-pulse rounded bg-[#E5E5E5] dark:bg-[#2E2E2E]">
+                &nbsp;
+              </span>
+            ) : hover != null && points[hover] ? (
+              points[hover].date
+            ) : (
+              'Token 总消耗'
+            )}
           </div>
           <div className="mt-0.5 text-xl font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">
-            <span key={hoverKey} className="animate-number-fade inline-block">
-              {formatTokens(Math.round(displayValue))}
-            </span>
+            {loading ? (
+              <span className="inline-block w-32 animate-pulse rounded bg-[#E5E5E5] dark:bg-[#2E2E2E]">
+                &nbsp;
+              </span>
+            ) : isEmpty ? (
+              '—'
+            ) : (
+              <span key={hoverKey} className="animate-number-fade inline-block">
+                {formatTokens(Math.round(displayValue))}
+              </span>
+            )}
           </div>
         </div>
-        <span
-          className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${
-            up
-              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
-              : 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
-          }`}
-        >
-          <Icon name={up ? 'chevronUp' : 'chevronDown'} size={12} /> {Math.abs(stats.delta_pct).toFixed(1)}%
-        </span>
-      </div>
-      <svg
-        ref={svgRef}
-        viewBox="0 0 320 110"
-        className="animate-chart-reveal token-chart-svg mt-3 w-full"
-        role="img"
-        aria-label="Token 消耗趋势图"
-        onMouseMove={onMove}
-        onMouseLeave={() => setHover(null)}
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#c07eff" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="#c07eff" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {areaPath && <path d={areaPath} fill={`url(#${gradientId})`} />}
-        {segments.map((s, i) => (
-          <path
-            key={i}
-            d={s.d}
-            fill="none"
-            stroke={s.dashed ? '#a1a1a1' : '#c07eff'}
-            strokeWidth="2"
-            strokeLinejoin="round"
-            strokeDasharray={s.dashed ? '5 5' : undefined}
-          />
-        ))}
-        {hovered && (
-          <g>
-            <line
-              x1={hovered[0]}
-              y1={6}
-              x2={hovered[0]}
-              y2={110}
-              stroke="#a1a1a1"
-              strokeWidth="1"
-              strokeDasharray="4 4"
-            />
-            <circle cx={hovered[0]} cy={hovered[1]} r={5} fill="#ac4bff" opacity={0.3}>
-              <animate attributeName="r" values="5;13" dur="1.4s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.35;0" dur="1.4s" repeatCount="indefinite" />
-            </circle>
-            <circle
-              cx={hovered[0]}
-              cy={hovered[1]}
-              r={5}
-              fill={hoveredZero ? '#a1a1a1' : '#ac4bff'}
-              stroke="#F7F7F7"
-              strokeWidth={3}
-            />
-          </g>
+        {loading ? (
+          <span className="inline-block w-14 animate-pulse rounded-full bg-[#E5E5E5] px-2 py-0.5 dark:bg-[#2E2E2E]">
+            &nbsp;
+          </span>
+        ) : isEmpty ? null : (
+          <span
+            className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+              up
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+                : 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
+            }`}
+          >
+            <Icon name={up ? 'chevronUp' : 'chevronDown'} size={12} />{' '}
+            {Math.abs(stats?.delta_pct ?? 0).toFixed(1)}%
+          </span>
         )}
-      </svg>
+      </div>
+      {loading ? (
+        <div
+          className="mt-3 aspect-[320/110] w-full animate-pulse rounded-lg bg-[#E5E5E5] dark:bg-[#2E2E2E]"
+          aria-hidden
+        />
+      ) : isEmpty ? (
+        <div className="mt-3 flex aspect-[320/110] w-full items-center justify-center rounded-lg text-sm text-[#737373] dark:text-[#A3A3A3]">
+          暂无 Token 统计数据
+        </div>
+      ) : (
+        <svg
+          ref={svgRef}
+          viewBox="0 0 320 110"
+          className="animate-chart-reveal token-chart-svg mt-3 w-full"
+          role="img"
+          aria-label="Token 消耗趋势图"
+          onMouseMove={onMove}
+          onMouseLeave={() => setHover(null)}
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#c07eff" stopOpacity="0.32" />
+              <stop offset="100%" stopColor="#c07eff" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {areaPath && <path d={areaPath} fill={`url(#${gradientId})`} />}
+          {segments.map((s, i) => (
+            <path
+              key={i}
+              d={s.d}
+              fill="none"
+              stroke={s.dashed ? '#a1a1a1' : '#c07eff'}
+              strokeWidth="2"
+              strokeLinejoin="round"
+              strokeDasharray={s.dashed ? '5 5' : undefined}
+            />
+          ))}
+          {hovered && (
+            <g>
+              <line
+                x1={hovered[0]}
+                y1={6}
+                x2={hovered[0]}
+                y2={110}
+                stroke="#a1a1a1"
+                strokeWidth="1"
+                strokeDasharray="4 4"
+              />
+              <circle cx={hovered[0]} cy={hovered[1]} r={5} fill="#ac4bff" opacity={0.3}>
+                <animate attributeName="r" values="5;13" dur="1.4s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.35;0" dur="1.4s" repeatCount="indefinite" />
+              </circle>
+              <circle
+                cx={hovered[0]}
+                cy={hovered[1]}
+                r={5}
+                fill={hoveredZero ? '#a1a1a1' : '#ac4bff'}
+                stroke="#F7F7F7"
+                strokeWidth={3}
+              />
+            </g>
+          )}
+        </svg>
+      )}
       <div className="mt-1 flex justify-between text-[11px] text-[#737373] dark:text-[#A3A3A3]">
-        <span>{points[0]?.date}</span>
-        <span>{points[points.length - 1]?.date}</span>
+        {loading ? (
+          <>
+            <span className="inline-block w-16 animate-pulse rounded bg-[#E5E5E5] dark:bg-[#2E2E2E]">
+              &nbsp;
+            </span>
+            <span className="inline-block w-16 animate-pulse rounded bg-[#E5E5E5] dark:bg-[#2E2E2E]">
+              &nbsp;
+            </span>
+          </>
+        ) : stats ? (
+          <>
+            <span>{points[0]?.date}</span>
+            <span>{points[points.length - 1]?.date}</span>
+          </>
+        ) : (
+          <>
+            <span>&nbsp;</span>
+            <span>&nbsp;</span>
+          </>
+        )}
       </div>
     </div>
   )
