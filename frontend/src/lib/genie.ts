@@ -69,9 +69,14 @@ export function genieSteps(from: number, to: number): number[] {
   return Array.from({ length: 33 }, (_, k) => from + (to - from) * smoothstep(k / 32))
 }
 
-/** Band count: clamp(ceil(panelHeight / 32), 16, 36) (original). */
+/** Band count: clamp(ceil(panelHeight / 48), 12, 20).
+ * The original uses 32px bands capped at 36; at ~974px that is 31
+ * full-surface clones (~4224 nodes) built synchronously on the main
+ * thread before the first frame. 48px bands capped at 20 cut that to
+ * ~20 clones with no visible loss — the warp is a smooth cubic
+ * falloff, so a 48px band still bends continuously. */
 export function genieBandCount(panelHeight: number): number {
-  return Math.min(36, Math.max(16, Math.ceil(panelHeight / 32)))
+  return Math.min(20, Math.max(12, Math.ceil(panelHeight / 48)))
 }
 
 /**

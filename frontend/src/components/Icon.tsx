@@ -4,6 +4,8 @@ import type { JSX } from 'react'
 
 export type IconName =
   | 'bell'
+  | 'bellOff'
+  | 'comment'
   | 'inbox'
   | 'sort'
   | 'filter'
@@ -49,6 +51,15 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M13.7 21a2 2 0 0 1-3.4 0" />
     </>
   ),
+  bellOff: (
+    <>
+      <path d="M8.7 3A6 6 0 0 1 18 8c0 2.5.5 4 1 5H5.5" />
+      <path d="M17 17H3s3-2 3-9a4.5 4.5 0 0 1 .5-2" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+      <path d="m2 2 20 20" />
+    </>
+  ),
+  comment: <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />,
   inbox: (
     <>
       <path d="M22 12h-6l-2 3h-4l-2-3H2" />

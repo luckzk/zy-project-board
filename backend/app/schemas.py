@@ -1,8 +1,42 @@
 """Pydantic schemas for zy-project-board backend."""
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import Annotated, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer, WithJsonSchema
+
+
+def _utc_iso(dt: datetime | None) -> str | None:
+    """Serialize a datetime as ISO 8601 with an explicit UTC offset.
+
+    Rows are written with naive ``datetime.utcnow()`` (i.e. UTC without
+    tzinfo); SQLite round-trips them naive as well. Serializing them
+    bare (``2026-11-23T06:34:00``) makes browsers parse the value as
+    *local* time, which shifted every relative timestamp by the viewer's
+    UTC offset (8h in CST). Treat naive values as UTC and always emit
+    the ``+00:00`` suffix so clients parse them correctly.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+# The values are still ISO 8601 date-time strings (now always with an
+# offset), so the JSON schema keeps format: date-time — only the
+# runtime serialization changes.
+UtcDateTime = Annotated[
+    datetime,
+    PlainSerializer(_utc_iso, return_type=str),
+    WithJsonSchema({'type': 'string', 'format': 'date-time'}),
+]
+UtcDateTimeOpt = Annotated[
+    Optional[datetime],
+    PlainSerializer(_utc_iso, return_type=str),
+    WithJsonSchema(
+        {'anyOf': [{'type': 'string', 'format': 'date-time'}, {'type': 'null'}]}
+    ),
+]
 
 
 class UserOut(BaseModel):
@@ -16,7 +50,7 @@ class UserOut(BaseModel):
     source: str = "seed"
     external_id: str = ""
     active: bool = True
-    synced_at: Optional[datetime] = None
+    synced_at: UtcDateTimeOpt = None
 
 
 class AuthRegister(BaseModel):
@@ -34,7 +68,7 @@ class AuthUserOut(BaseModel):
     id: int
     name: str
     email: str
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class AuthOut(BaseModel):
@@ -119,9 +153,9 @@ class TicketOut(BaseModel):
     priority: str
     project_id: str
     assignee_ids: List[str]
-    created_at: datetime
-    updated_at: datetime
-    completed_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime
+    completed_at: UtcDateTimeOpt = None
     position: int
 
     model_config = {"from_attributes": True}
@@ -138,7 +172,7 @@ class CommentOut(BaseModel):
     author_id: str
     author_name: str
     body: str
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = {"from_attributes": True}
 

@@ -85,7 +85,7 @@ npm run dev
 | GET | `/api/tickets/{id}/token-stats` | 工单 Token 消耗统计 |
 | GET | `/openapi.json` | OpenAPI 规范 |
 
-完整字段与枚举值见 `openapi.json` 与 `llms.txt`。
+完整字段与枚举值见 `openapi.json` 与 `llms.txt`。所有时间字段（`created_at` / `updated_at` / `completed_at` / `synced_at`）都以 UTC 的 ISO 8601 返回，带 `+00:00` 后缀（库里存的是无时区 UTC 时间，序列化时按 UTC 补后缀；种子数据的旧时间值不变）。
 
 ### 图片上传
 

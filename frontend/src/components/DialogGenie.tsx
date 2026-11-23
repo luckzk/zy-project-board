@@ -70,21 +70,30 @@ export function DialogGenie({ exiting, onExitDone, children }: DialogGenieProps)
     surface.style.willChange = 'transform, opacity'
     shadow.style.willChange = 'transform, opacity'
 
-    const apply = (p: number) => {
+    const apply = (p: number, updateFilter: boolean) => {
       progressRef.current = p
       const r = rangeEase(0, 0.72, p)
       const y = g * rangeEase(0, 0.42, p)
       const n = rangeEase(0.32, 1, p)
       const scaleY = Math.max(0.001, ((panelH + y) * (1 - n)) / panelH)
-      disp.setAttribute('scale', String(0.98 * panelW * r))
-      blur.setAttribute('stdDeviation', String(2 * rangeEase(0.8, 1, p)))
+      // The SVG filter re-rasters the whole panel whenever its
+      // parameters change, so the displacement/blur params are updated
+      // only every 3rd frame (plus the first and last): the warp still
+      // animates, but the filter chain re-runs ~10x instead of ~29x
+      // per open. The translateY/scaleY transform runs every frame on
+      // the compositor, and the param lag is at most 2 frames (~33ms),
+      // far below what the eye can track in a 480ms warp.
+      if (updateFilter) {
+        disp.setAttribute('scale', String(0.98 * panelW * r))
+        blur.setAttribute('stdDeviation', String(2 * rangeEase(0.8, 1, p)))
+      }
       surface.style.transform = `translateY(${y}px) scaleY(${scaleY})`
       surface.style.opacity = String(1 - rangeEase(0.94, 1, p))
       shadow.style.transform = `translateY(${y}px) scale(${1 - 0.65 * r}, ${1 - 0.9 * n})`
       shadow.style.opacity = String(1 - rangeEase(0.08, 0.72, p))
     }
 
-    apply(progressRef.current)
+    apply(progressRef.current, true)
     const from = progressRef.current
     const to = exiting ? 1 : 0
     if (from === to) {
@@ -93,9 +102,11 @@ export function DialogGenie({ exiting, onExitDone, children }: DialogGenieProps)
     }
     const start = performance.now()
     let raf = 0
+    let frame = 0
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / DIALOG_GENIE_DURATION_MS)
-      apply(from + (to - from) * easeInOut(t))
+      frame++
+      apply(from + (to - from) * easeInOut(t), frame % 3 === 0 || t >= 1)
       if (t < 1) {
         raf = requestAnimationFrame(tick)
         return

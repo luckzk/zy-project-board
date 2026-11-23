@@ -1,5 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { memo } from 'react'
 import { formatTicketDate } from '../api'
 import { PRIORITY_LABELS, type Priority, type Project, type Ticket, type User } from '../types'
 import { AvatarStack } from './Avatar'
@@ -11,7 +12,13 @@ export const PRIORITY_BADGE: Record<Priority, string> = {
   urgent: 'bg-[#FFCCD3] text-[#A50036] dark:bg-[#FFCCD3]/15 dark:text-[#FF9EB0]',
 }
 
-export default function TicketCard({
+/** Memoized: during a drag, App's columns state changes on every
+ * drag-over and re-renders the whole board; untouched cards skip the
+ * re-render (their ticket objects keep referential identity — only the
+ * moved card gets a new object — and onClick is a stable callback from
+ * App). The dragged card itself still updates via useSortable's
+ * internal transform state, which memo does not block. */
+export default memo(function TicketCard({
   ticket,
   users,
   projects,
@@ -90,4 +97,4 @@ export default function TicketCard({
       <div className="mt-2.5 text-xs text-[#737373] dark:text-[#A3A3A3]">{dateLabel}</div>
     </article>
   )
-}
+})

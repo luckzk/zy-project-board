@@ -243,24 +243,30 @@ export default function TicketDrawer({
       if (!panelW || !panelH) return
       const { distX, distY } = genieDistances(genieEl.getBoundingClientRect())
 
-      // Clone the live panel; freeze its inner animations/transitions,
-      // rewrite ids, preserve the chart's computed clip-path and the
-      // scroll positions of scrolled containers.
+      // Clone the live panel. The freeze is a single class on the
+      // clone root (.genie-frozen kills animations/transitions/
+      // backdrop-filter for the whole subtree via CSS) instead of
+      // writing inline styles node by node over the ~132-node surface.
+      // Scrolled containers are marked on the live surface BEFORE
+      // cloning so their scroll position rides into the clone via the
+      // data attribute (the marker is removed from the live surface
+      // right after; the clones keep their copy).
+      const scrolled = [...surfaceEl.querySelectorAll('*')].filter(
+        (el) => (el as HTMLElement).scrollTop > 0,
+      ) as HTMLElement[]
+      scrolled.forEach((el) => {
+        el.dataset.genieScroll = String(el.scrollTop)
+      })
       const clone = surfaceEl.cloneNode(true) as HTMLElement
       rewriteCloneIds(clone, uniqueId('genie'))
-      const origNodes = [surfaceEl, ...surfaceEl.querySelectorAll('*')]
-      const cloneNodes = [clone, ...clone.querySelectorAll('*')]
-      cloneNodes.forEach((el, idx) => {
-        const node = el as HTMLElement
-        node.style.animation = 'none'
-        node.style.transition = 'none'
-        node.style.backdropFilter = 'none'
-        const orig = origNodes[idx] as HTMLElement | undefined
-        if (orig?.classList.contains('animate-chart-reveal')) {
-          node.style.clipPath = getComputedStyle(orig).clipPath
-        }
-        if (orig && orig.scrollTop) node.dataset.genieScroll = String(orig.scrollTop)
-      })
+      clone.classList.add('genie-frozen')
+      // Preserve the chart's computed clip-path (closing only — opening
+      // drops the chart from the clone, see below).
+      const chartOrig = surfaceEl.querySelector('.animate-chart-reveal')
+      const chartClone = clone.querySelector('.animate-chart-reveal')
+      if (chartOrig && chartClone) {
+        ;(chartClone as HTMLElement).style.clipPath = getComputedStyle(chartOrig).clipPath
+      }
       clone.style.opacity = '1'
       clone.style.transform = 'none'
       clone.style.filter = 'none'
@@ -269,6 +275,9 @@ export default function TicketDrawer({
       if (!closing) {
         clone.querySelectorAll('svg.token-chart-svg').forEach((n) => n.remove())
       }
+      scrolled.forEach((el) => {
+        delete el.dataset.genieScroll
+      })
 
       // Slice the clone into horizontal bands.
       const count = genieBandCount(panelH)
@@ -283,7 +292,12 @@ export default function TicketDrawer({
         band.style.height = `${bottom - top}px`
         band.style.transform = bandMatrix(panelW, panelH, top, bottom, distX, distY, from)
         const inner = clone.cloneNode(true) as HTMLElement
-        rewriteCloneIds(inner, uniqueId(`genie-band-${i}`))
+        // Duplicate ids only matter if the clone actually carries any
+        // (the only id in the surface is the chart gradient, and opening
+        // already dropped the chart): skip the rewrite walk when there
+        // is nothing to rewrite. Closing keeps the chart, so the
+        // rewrite still runs there.
+        if (inner.querySelector('[id]')) rewriteCloneIds(inner, uniqueId(`genie-band-${i}`))
         Object.assign(inner.style, {
           position: 'absolute',
           width: `${panelW}px`,
@@ -300,20 +314,25 @@ export default function TicketDrawer({
         ;(el as HTMLElement).scrollTop = Number((el as HTMLElement).dataset.genieScroll)
       })
       if (cancelled) return
-      // Opening waits two frames after the bands are in place so the
+      // Hide the live surface BEFORE the wait: the bands (a frozen
+      // clone) are the only thing the user ever sees during the warp.
+      // Hiding it after the wait flashed the full panel for several
+      // frames before the animation covered it — this is the no-flash
+      // invariant, and it still holds: everything above runs
+      // synchronously inside this layout effect, before the browser's
+      // first paint, so the bare live panel is never painted.
+      // Opening waits one frame after the bands are in place so the
       // browser paints them at their initial warp before the WAAPI
-      // animations take over (original); closing starts immediately.
-      // Hide the live surface BEFORE the two-frame wait: the bands (a
-      // frozen clone) are the only thing the user ever sees during the
-      // warp. Hiding it after the wait flashed the full panel for
-      // several frames before the animation covered it.
+      // animations take over; closing starts immediately. (The original
+      // waited two frames; one is enough because every band already
+      // carries its initial warp transform, which equals WAAPI
+      // keyframe 0, so no jump is possible — this just saves ~16ms of
+      // dead time between click and motion.)
       surfaceEl.style.opacity = '0'
       if (!closing) {
         bandsEl.style.opacity = '0.001'
         await new Promise<void>((resolve) => {
-          innerRaf = requestAnimationFrame(() => {
-            innerRaf = requestAnimationFrame(() => resolve())
-          })
+          innerRaf = requestAnimationFrame(() => resolve())
         })
         if (cancelled) return
       }

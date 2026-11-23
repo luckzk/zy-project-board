@@ -23,9 +23,13 @@ import SettingsModal, {
 } from './components/SettingsModal'
 import Icon from './components/Icon'
 import { useMountTransition } from './lib/useMountTransition'
+import { HeaderPopover } from './components/HeaderPopover'
+import { Tooltip } from './components/Tooltip'
+import { Checkbox } from './components/Checkbox'
+import { NotificationPopover, NOTIF_ITEMS } from './components/NotificationPopover'
 
 type SortMode = 'manual' | 'priority' | 'title'
-type Popover = 'sort' | 'filter' | 'display' | 'notif' | 'inbox' | null
+type Popover = 'sort' | 'filter' | 'display' | 'notif' | null
 
 function loadTheme(): boolean {
   try {
@@ -49,15 +53,6 @@ function loadStoredBool(key: string, fallback: boolean): boolean {
   return v === '1'
 }
 
-// Demo notifications (clearly demo data from the board itself).
-const DEMO_NOTIFICATIONS = [
-  { id: 1, text: 'DS-31 的优先级改为紧急', time: '2小时前' },
-  { id: 2, text: 'FE-79 移到了进行中', time: '5小时前' },
-  { id: 3, text: 'FE-76 新增了一条评论', time: '昨天' },
-  { id: 4, text: 'DS-38 被提及了', time: '昨天' },
-  { id: 5, text: 'FE-71 已完成', time: '2天前' },
-]
-
 export default function App() {
   const [users, setUsers] = useState<User[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -72,11 +67,14 @@ export default function App() {
   const mobileOverlay = useMountTransition(mobileSidebar, 325)
   const themeRevealRef = useRef(false)
 
-  /** Theme toggle with the original's circular-mask reveal: 820ms
-   * cubic-bezier(0.16,1,0.3,1), mask SVG (blur 2, circle r=42), radius
+  /** Theme toggle with the original's circular-mask reveal: 450ms
+   * cubic-bezier(0.16,1,0.3,1), mask (blur 2, circle r=42), radius
    * 2.5x the distance to the farthest corner, expanding from the click
-   * point. Falls back to an instant switch without ViewTransition
-   * support or under prefers-reduced-motion. */
+   * point. (The original runs 820ms; at that length the whole page
+   * feels frozen because all transitions are disabled during the
+   * reveal — 450ms keeps the same effect without the stall.) Falls
+   * back to an instant switch without ViewTransition support or under
+   * prefers-reduced-motion. */
   const toggleDark = useCallback(
     (origin?: { x: number; y: number }) => {
       const next = !dark
@@ -106,7 +104,7 @@ export default function App() {
               { maskSize: size, WebkitMaskSize: size, maskPosition: pos, WebkitMaskPosition: pos },
             ],
             {
-              duration: 820,
+              duration: 450,
               easing: 'cubic-bezier(0.16,1,0.3,1)',
               fill: 'forwards',
               pseudoElement: '::view-transition-new(root)',
@@ -161,7 +159,17 @@ export default function App() {
   const [popover, setPopover] = useState<Popover>(null)
   const [popoverClosing, setPopoverClosing] = useState(false)
   const popoverTimer = useRef<number | null>(null)
-  const headerControlsRef = useRef<HTMLDivElement>(null)
+  // Anchor refs for the header popovers: each popover is positioned
+  // against its own trigger button (original: placement "bottom end"),
+  // not against the whole button group.
+  const notifBtnRef = useRef<HTMLButtonElement>(null)
+  const sortBtnRef = useRef<HTMLButtonElement>(null)
+  const filterBtnRef = useRef<HTMLButtonElement>(null)
+  const displayBtnRef = useRef<HTMLButtonElement>(null)
+  // Notification read state lives here so the bell badge can show the
+  // unread count; the popover itself only renders it.
+  const [notifRead, setNotifRead] = useState<Set<string>>(new Set())
+  const notifUnreadCount = NOTIF_ITEMS.filter((i) => i.unread && !notifRead.has(i.id)).length
 
   const closePopover = useCallback(() => {
     if (!popover) return
@@ -186,29 +194,9 @@ export default function App() {
     [popover, closePopover],
   )
 
-  // Close any open header popover on Escape or on a click outside the
-  // header controls (the toggle buttons live inside the ref, so clicking
-  // one still toggles instead of being swallowed by an overlay).
-  useEffect(() => {
-    if (!popover) return
-    const onPointerDown = (e: MouseEvent) => {
-      if (
-        headerControlsRef.current &&
-        !headerControlsRef.current.contains(e.target as Node)
-      ) {
-        closePopover()
-      }
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closePopover()
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [popover, closePopover])
+  // (HeaderPopover handles its own outside-click and Escape
+  // dismissal, ignoring clicks on its anchor, so there is no
+  // App-level popover effect anymore.)
 
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   // The ticket as already known from the board list payload — passed to
@@ -356,18 +344,25 @@ export default function App() {
     [refreshBoard],
   )
 
+  // Stable callbacks for the board: TicketCard is memoized, so an
+  // inline arrow here would defeat it and re-render every card on
+  // every drag-over.
+  const handleCardClick = useCallback((t: Ticket) => setSelectedTicketId(t.id), [])
+  const handleAddTicket = useCallback((s: TicketStatus) => openNewTicket(s), [openNewTicket])
+
   const iconBtn =
-    'relative flex h-9 w-9 items-center justify-center rounded-[10px] border border-[#EBEBEB] bg-white text-base leading-none text-[#737373] hover:bg-[#F7F7F7] hover:text-[#0A0A0A] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#A3A3A3] dark:hover:bg-[#262626] dark:hover:text-[#F5F5F5]'
-  const sortLabel = sort === 'manual' ? '手动' : sort === 'priority' ? '优先级' : '标题'
+    'relative flex h-9 w-9 items-center justify-center rounded-[10px] border border-[#EBEBEB] bg-white text-base leading-none text-[#737373] shadow-xs hover:border-[#D9D9D9] hover:bg-[#F7F7F7] hover:text-[#0A0A0A] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#A3A3A3] dark:hover:border-[#3D3D3D] dark:hover:bg-[#262626] dark:hover:text-[#F5F5F5]'
   const menuItem = (active: boolean) =>
     `flex w-full items-center gap-2 rounded-[10px] px-2 py-1.5 text-left text-[13px] ${
       active
         ? 'font-medium text-[#171717] dark:text-white'
         : 'text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]'
     }`
-  // Blue dot on a trigger whose state is not the default (original menu-module).
+  // Blue dot on a trigger whose state is not the default (original
+  // menu-module): outside the button's top-right corner, ring in the
+  // page background colour so it reads as a corner badge.
   const triggerDot = (
-    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#2476FF] ring-2 ring-white dark:ring-[#202020]" />
+    <span className="absolute -end-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#2476FF] ring-2 ring-white dark:ring-[#121212]" />
   )
 
   if (!authChecked) {
@@ -441,187 +436,187 @@ export default function App() {
                 </h1>
               </div>
             </div>
-            <div ref={headerControlsRef} className="relative flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
                 <button
-                  className={iconBtn}
+                  ref={notifBtnRef}
+                  className={`${iconBtn} group`}
                   aria-label="通知"
+                  aria-expanded={popover === 'notif'}
+                  aria-haspopup="dialog"
                   onClick={() => togglePopover('notif')}
                 >
-                  <Icon name="bell" size={18} />
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
-                    5
-                  </span>
+                  <Icon name="bell" size={20} />
+                  {notifUnreadCount > 0 && (
+                    <span className="pointer-events-none absolute start-[18px] top-0.5 flex size-4 items-center justify-center rounded-full border-[1.5px] border-white bg-red-600 group-hover:border-0 dark:border-[#202020]">
+                      <span className="w-4 text-center text-[10px] font-bold leading-4 text-white">
+                        {notifUnreadCount}
+                      </span>
+                    </span>
+                  )}
                 </button>
-                <button
-                  className={iconBtn}
-                  aria-label="收件箱"
-                  onClick={() => togglePopover('inbox')}
-                >
-                  <Icon name="inbox" size={18} />
+                {/* Original: the inbox button has no onClick — it does nothing. */}
+                <button className={iconBtn} aria-label="收件箱">
+                  <Icon name="inbox" size={20} />
                 </button>
-                <button
-                  className={iconBtn}
-                  aria-label="排序"
-                  title={`排序：${sortLabel}`}
-                  onClick={() => togglePopover('sort')}
-                >
-                  <Icon name="sort" size={18} />
-                  {sort !== 'manual' && triggerDot}
-                </button>
-                <button
-                  className={iconBtn}
-                  aria-label="筛选"
-                  onClick={() => togglePopover('filter')}
-                >
-                  <Icon name="filter" size={18} />
-                  {(priorityFilter !== 'all' || projectFilter !== 'all') && triggerDot}
-                </button>
-                <button
-                  className={iconBtn}
-                  aria-label="显示选项"
-                  onClick={() => togglePopover('display')}
-                >
-                  <Icon name="layout" size={18} />
-                  {(!showDone || wideFill) && triggerDot}
-                </button>
+                <Tooltip label="排序">
+                  <button
+                    ref={sortBtnRef}
+                    className={iconBtn}
+                    aria-label="排序"
+                    aria-expanded={popover === 'sort'}
+                    aria-haspopup="dialog"
+                    onClick={() => togglePopover('sort')}
+                  >
+                    <Icon name="sort" size={20} />
+                    {sort !== 'manual' && triggerDot}
+                  </button>
+                </Tooltip>
+                <Tooltip label="筛选">
+                  <button
+                    ref={filterBtnRef}
+                    className={iconBtn}
+                    aria-label="筛选"
+                    aria-expanded={popover === 'filter'}
+                    aria-haspopup="dialog"
+                    onClick={() => togglePopover('filter')}
+                  >
+                    <Icon name="filter" size={20} />
+                    {(priorityFilter !== 'all' || projectFilter !== 'all') && triggerDot}
+                  </button>
+                </Tooltip>
+                <Tooltip label="显示选项">
+                  <button
+                    ref={displayBtnRef}
+                    className={iconBtn}
+                    aria-label="显示选项"
+                    aria-expanded={popover === 'display'}
+                    aria-haspopup="dialog"
+                    onClick={() => togglePopover('display')}
+                  >
+                    <Icon name="layout" size={20} />
+                    {(!showDone || wideFill) && triggerDot}
+                  </button>
+                </Tooltip>
                 <button
                   onClick={() => openNewTicket()}
                   className="flex h-9 items-center rounded-[10px] bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] px-4 text-sm font-medium text-white shadow-sm hover:brightness-95"
                 >
                   + 新票
                 </button>
-
-                {popover && (
-                  <span
-                    className={`absolute right-0 top-11 z-40 w-[220px] overflow-hidden rounded-[14px] border border-[#EBEBEB] bg-white p-1 shadow-lg dark:border-[#2E2E2E] dark:bg-[#202020] ${
-                      popoverClosing ? 'anim-pop-out' : 'anim-pop-in'
-                    }`}
-                  >
-                    {popover === 'sort' && (
-                      <span className="block">
-                        <span className="block px-2 pb-1 pt-1 text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">排序</span>
-                        {(
-                          [
-                            ['manual', '手动'],
-                            ['priority', '优先级'],
-                            ['title', '标题'],
-                          ] as [SortMode, string][]
-                        ).map(([v, label]) => (
-                          <button
-                            key={v}
-                            onClick={() => {
-                              setSort(v)
-                              closePopover()
-                            }}
-                            className={menuItem(sort === v)}
-                          >
-                            <span className="flex-1">{label}</span>
-                            {sort === v && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
-                          </button>
-                        ))}
-                      </span>
-                    )}
-                    {popover === 'filter' && (
-                      <span className="block">
-                        <span className="block px-2 pb-1 pt-1 text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">优先级</span>
-                        {(['all', 'low', 'medium', 'high', 'urgent'] as const).map((v) => (
-                          <button
-                            key={v}
-                            onClick={() => {
-                              setPriorityFilter(v)
-                              closePopover()
-                            }}
-                            className={menuItem(priorityFilter === v)}
-                          >
-                            <span className="flex-1">{v === 'all' ? '全部' : PRIORITY_LABELS[v]}</span>
-                            {priorityFilter === v && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
-                          </button>
-                        ))}
-                        <span className="mt-1 block border-t border-[#EBEBEB] px-2 pb-1 pt-2 text-xs font-medium text-[#737373] dark:border-[#2E2E2E] dark:text-[#A3A3A3]">
-                          项目
-                        </span>
-                        {[{ id: 'all', name: '全部' }, ...projects].map((p) => (
-                          <button
-                            key={p.id}
-                            onClick={() => {
-                              setProjectFilter(p.id)
-                              closePopover()
-                            }}
-                            className={menuItem(projectFilter === p.id)}
-                          >
-                            <span className="flex-1">{p.name}</span>
-                            {projectFilter === p.id && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
-                          </button>
-                        ))}
-                        {(priorityFilter !== 'all' || projectFilter !== 'all') && (
-                          <button
-                            onClick={() => {
-                              setPriorityFilter('all')
-                              setProjectFilter('all')
-                              closePopover()
-                            }}
-                            className="mt-1 flex w-full items-center gap-2 rounded-[10px] border-t border-[#EBEBEB] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:border-[#2E2E2E] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
-                          >
-                            清除筛选
-                          </button>
-                        )}
-                      </span>
-                    )}
-                    {popover === 'display' && (
-                      <span className="block">
-                        <label className="flex cursor-pointer items-center gap-2 rounded-[10px] px-2 py-1.5 text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]">
-                          <input
-                            type="checkbox"
-                            checked={showDone}
-                            onChange={(e) => setShowDone(e.target.checked)}
-                            className="h-4 w-4 accent-[#2476FF]"
-                          />
-                          显示完成列
-                        </label>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-[10px] px-2 py-1.5 text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]">
-                          <input
-                            type="checkbox"
-                            checked={wideFill}
-                            onChange={(e) => setWideFill(e.target.checked)}
-                            className="h-4 w-4 accent-[#2476FF]"
-                          />
-                          宽屏填充
-                        </label>
-                      </span>
-                    )}
-                    {popover === 'notif' && (
-                      <span className="block">
-                        <span className="flex items-center justify-between px-2 pb-1 pt-1">
-                          <span className="text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">通知</span>
-                          <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                            5 条未读
-                          </span>
-                        </span>
-                        {DEMO_NOTIFICATIONS.map((n) => (
-                          <span
-                            key={n.id}
-                            className="block rounded-[10px] px-2 py-1.5 text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
-                          >
-                            {n.text}
-                            <span className="block text-xs text-[#737373] dark:text-[#A3A3A3]">{n.time} · 演示数据</span>
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                    {popover === 'inbox' && (
-                      <span className="block p-6 text-center">
-                        <span className="flex justify-center text-[#D9D9D9] dark:text-[#2E2E2E]">
-                          <Icon name="inbox" size={32} />
-                        </span>
-                        <span className="mt-2 block text-sm font-medium text-[#262626] dark:text-[#E5E5E5]">
-                          收件箱是空的
-                        </span>
-                        <span className="mt-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">有新的提及和分配时会显示在这里</span>
-                      </span>
-                    )}
-                  </span>
-                )}
               </div>
+
+              {/* Header popovers (original popover-module): each anchored
+                  to its own trigger button ("bottom end", offset 8) and
+                  rendered in a portal so it is never clipped. */}
+              <HeaderPopover
+                open={popover === 'notif'}
+                closing={popoverClosing}
+                anchorRef={notifBtnRef}
+                width={440}
+                onClose={closePopover}
+              >
+                <NotificationPopover
+                  users={users}
+                  readIds={notifRead}
+                  onMarkRead={(id) => setNotifRead((cur) => new Set(cur).add(id))}
+                  onMarkAllRead={() =>
+                    setNotifRead(new Set(NOTIF_ITEMS.filter((i) => i.unread).map((i) => i.id)))
+                  }
+                />
+              </HeaderPopover>
+              <HeaderPopover
+                open={popover === 'sort'}
+                closing={popoverClosing}
+                anchorRef={sortBtnRef}
+                width={220}
+                onClose={closePopover}
+              >
+                <div className="p-1">
+                  {(
+                    [
+                      ['manual', '手动'],
+                      ['priority', '优先级'],
+                      ['title', '标题'],
+                    ] as [SortMode, string][]
+                  ).map(([v, label]) => (
+                    <button
+                      key={v}
+                      onClick={() => {
+                        setSort(v)
+                        closePopover()
+                      }}
+                      className={menuItem(sort === v)}
+                    >
+                      <span className="flex-1">{label}</span>
+                      {sort === v && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
+                    </button>
+                  ))}
+                </div>
+              </HeaderPopover>
+              <HeaderPopover
+                open={popover === 'filter'}
+                closing={popoverClosing}
+                anchorRef={filterBtnRef}
+                width={220}
+                onClose={closePopover}
+              >
+                <div className="p-1">
+                  <span className="block px-2 pb-1 pt-1 text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">优先级</span>
+                  {(['all', 'low', 'medium', 'high', 'urgent'] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => {
+                        setPriorityFilter(v)
+                        closePopover()
+                      }}
+                      className={menuItem(priorityFilter === v)}
+                    >
+                      <span className="flex-1">{v === 'all' ? '全部' : PRIORITY_LABELS[v]}</span>
+                      {priorityFilter === v && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
+                    </button>
+                  ))}
+                  <span className="block px-2 pb-1 pt-2 text-xs font-medium text-[#737373] dark:text-[#A3A3A3]">
+                    项目
+                  </span>
+                  {[{ id: 'all', name: '全部' }, ...projects].map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        setProjectFilter(p.id)
+                        closePopover()
+                      }}
+                      className={menuItem(projectFilter === p.id)}
+                    >
+                      <span className="flex-1">{p.name}</span>
+                      {projectFilter === p.id && <Icon name="check" size={16} className="shrink-0 text-[#171717] dark:text-white" />}
+                    </button>
+                  ))}
+                  {(priorityFilter !== 'all' || projectFilter !== 'all') && (
+                    <button
+                      onClick={() => {
+                        setPriorityFilter('all')
+                        setProjectFilter('all')
+                        closePopover()
+                      }}
+                      className="flex w-full items-center gap-2 rounded-[10px] px-2 py-1.5 text-left text-[13px] text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
+                    >
+                      清除筛选
+                    </button>
+                  )}
+                </div>
+              </HeaderPopover>
+              <HeaderPopover
+                open={popover === 'display'}
+                closing={popoverClosing}
+                anchorRef={displayBtnRef}
+                width={220}
+                onClose={closePopover}
+              >
+                <div className="p-1">
+                  <Checkbox checked={showDone} onChange={setShowDone} label="显示完成列" />
+                  <Checkbox checked={wideFill} onChange={setWideFill} label="宽屏填充" />
+                </div>
+              </HeaderPopover>
           </div>
         </header>
 
@@ -677,9 +672,9 @@ export default function App() {
                   columns={visibleColumns}
                   users={users}
                   projects={projects}
-                  onCardClick={(t) => setSelectedTicketId(t.id)}
+                  onCardClick={handleCardClick}
                   onMove={moveTicket}
-                  onAddTicket={(s) => openNewTicket(s)}
+                  onAddTicket={handleAddTicket}
                   wideFill={wideFill}
                   onDragCancel={() => void refreshBoard()}
                 />

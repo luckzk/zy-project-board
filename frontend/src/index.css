@@ -91,6 +91,10 @@ body {
    * the shadow halo would be visible on its own during the two-frame
    * wait before the warp starts. */
   opacity: 0;
+  /* The shadow is animated (translate/scale/opacity) for the whole
+   * 480ms warp: keep it on its own compositor layer instead of
+   * re-rasterizing the 250px-blur shadow every frame. */
+  will-change: transform, opacity;
   transform-origin: 100% 100%;
   border-radius: 24px;
   position: absolute;
@@ -112,6 +116,16 @@ body {
   top: 0;
   left: 0;
   overflow: hidden;
+}
+
+/* Freeze a genie clone's inner animations/transitions/backdrop-filter
+ * with one class instead of writing inline styles node by node (the
+ * old freeze pass touched every node of the ~132-node surface). */
+.genie-frozen,
+.genie-frozen * {
+  animation: none !important;
+  transition: none !important;
+  backdrop-filter: none !important;
 }
 
 /* ---- Token chart reveal (original) ---- */
@@ -136,10 +150,15 @@ body {
 ::view-transition-new(root) {
   animation: none;
   z-index: 2;
-  /* Circular reveal mask: blurred circle (blur 2, r=42 in a 100x100
-   * viewBox); size/position are animated from the click point. */
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3Cfilter id='b'%3E%3CfeGaussianBlur stdDeviation='2'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='42' filter='url(%23b)' fill='black'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3Cfilter id='b'%3E%3CfeGaussianBlur stdDeviation='2'/%3E%3C/filter%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='42' filter='url(%23b)' fill='black'/%3E%3C/svg%3E");
+  /* Circular reveal mask: a soft-edged circle (2px feather, same as
+   * the original's SVG blur 2 / r=42 mask). A plain CSS radial
+   * gradient instead of the original's SVG data-URI with an
+   * feGaussianBlur filter: the mask no longer needs a filter raster
+   * every frame of the reveal, and the feather stays ~2px at any
+   * mask size (closest-side keeps the radius at half the mask box).
+   * Size/position are animated from the click point (see App.tsx). */
+  mask-image: radial-gradient(circle closest-side, black calc(100% - 2px), transparent 100%);
+  -webkit-mask-image: radial-gradient(circle closest-side, black calc(100% - 2px), transparent 100%);
   mask-repeat: no-repeat;
   -webkit-mask-repeat: no-repeat;
 }

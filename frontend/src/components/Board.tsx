@@ -175,7 +175,7 @@ export default function Board({
     <DndContext
       sensors={sensors}
       collisionDetection={twoStageCollision}
-      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      measuring={{ droppable: { strategy: MeasuringStrategy.BeforeDragging } }}
       autoScroll={{ acceleration: 5, threshold: { x: 0.12, y: 0.12 } }}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
@@ -199,9 +199,11 @@ export default function Board({
       </div>
       <DragOverlay>
         {activeTicket ? (
-          // Original: the overlay does not rotate; dark mode gets a
-          // 12px backdrop blur.
-          <div className="w-[261px] cursor-grabbing dark:[&>article]:bg-[#202020]/80 dark:[&>article]:backdrop-blur-[12px]">
+          // Original: the overlay does not rotate. (The original also
+          // blurs it 12px in dark mode, but backdrop-filter on the
+          // dragged card re-composites on every pointer move, so the
+          // blur is dropped for a solid dark surface instead.)
+          <div className="w-[261px] cursor-grabbing dark:[&>article]:bg-[#202020]">
             <TicketCard ticket={activeTicket} users={users} projects={projects} onClick={() => {}} />
           </div>
         ) : null}

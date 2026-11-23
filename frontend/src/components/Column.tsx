@@ -87,9 +87,22 @@ export default function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `column-${column.status}` })
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [scrollTop, setScrollTop] = useState(0)
-  // Original: top fade opacity = scrollTop / 24.
-  const fadeOpacity = Math.min(1, scrollTop / 24)
+  const fadeRef = useRef<HTMLDivElement | null>(null)
+  const fadeRaf = useRef(0)
+  // Top fade opacity = scrollTop / 24 (original). Written straight to
+  // the fade layer's style inside a rAF — never through React state,
+  // so scrolling no longer re-renders the whole column on every tick.
+  const onScroll = () => {
+    if (fadeRaf.current) return
+    fadeRaf.current = requestAnimationFrame(() => {
+      fadeRaf.current = 0
+      const el = fadeRef.current
+      const sc = scrollRef.current
+      if (!el || !sc) return
+      el.style.opacity = String(Math.min(1, sc.scrollTop / 24))
+    })
+  }
+  useEffect(() => () => cancelAnimationFrame(fadeRaf.current), [])
   const isEmpty = column.tickets.length === 0 && exitingTickets.length === 0
 
   return (
@@ -130,7 +143,7 @@ export default function Column({
             setNodeRef(el)
             scrollRef.current = el
           }}
-          onScroll={() => setScrollTop(scrollRef.current?.scrollTop ?? 0)}
+          onScroll={onScroll}
           className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pb-1"
         >
           <SortableContext
@@ -150,19 +163,17 @@ export default function Column({
           </SortableContext>
           {isEmpty && <EmptyColumnIllustration />}
         </div>
-        {/* Original: three-layer frosted fade at the top of a scrolled
-            column (blur 1px full layer + blur 4px top 16px + bg gradient). */}
+        {/* Original: a frosted fade at the top of a scrolled column.
+            The fade itself is a plain background gradient (cheap); the
+            two backdrop-blur layers the original stacks on top of it
+            re-composite on every scroll frame, so they are dropped —
+            the gradient alone still fades the cards sliding under the
+            top edge. Opacity is set directly on this layer (see
+            onScroll); it starts at 0. */}
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 backdrop-blur-[1px]"
-          style={{ opacity: fadeOpacity }}
-        />
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-4 backdrop-blur-[4px]"
-          style={{ opacity: fadeOpacity }}
-        />
-        <div
+          ref={fadeRef}
           className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-[#F7F7F7] to-transparent dark:from-[#171717]"
-          style={{ opacity: fadeOpacity }}
+          style={{ opacity: 0 }}
         />
       </div>
     </section>
