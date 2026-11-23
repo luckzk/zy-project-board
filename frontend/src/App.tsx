@@ -16,16 +16,15 @@ import Board from './components/Board'
 import TicketDrawer from './components/TicketDrawer'
 import NewTicketDialog from './components/NewTicketDialog'
 import AuthPage from './components/AuthPage'
-import Settings, {
+import SettingsModal, {
   DEFAULT_SHOW_DONE_KEY,
   DEFAULT_SORT_KEY,
   DEFAULT_WIDE_FILL_KEY,
-} from './components/Settings'
+} from './components/SettingsModal'
 import Icon from './components/Icon'
 
 type SortMode = 'manual' | 'priority' | 'title'
 type Popover = 'sort' | 'filter' | 'display' | 'notif' | 'inbox' | null
-type View = 'board' | 'settings'
 
 function loadTheme(): boolean {
   try {
@@ -76,10 +75,12 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
 
-  const [view, setView] = useState<View>('board')
+  // Settings is a Notion-style centred modal (same as the original);
+  // the board stays mounted behind it.
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // Board defaults come from Settings (localStorage); Settings edits them
-  // and the next board load picks them up.
+  // Board defaults come from the Settings modal (localStorage); the
+  // modal edits them and the next board load picks them up.
   const [sort, setSort] = useState<SortMode>(
     () => (loadStored(DEFAULT_SORT_KEY, 'manual') as SortMode) || 'manual',
   )
@@ -168,14 +169,14 @@ export default function App() {
   const handleLogout = useCallback(() => {
     setToken(null)
     setAuthUser(null)
-    setView('board')
+    setSettingsOpen(false)
     setSelectedTicketId(null)
   }, [])
 
   const handleNavigate = useCallback((id: string) => {
     setMobileSidebar(false)
-    if (id === 'board') setView('board')
-    else if (id === 'settings') setView('settings')
+    if (id === 'board') setSettingsOpen(false)
+    else if (id === 'settings') setSettingsOpen(true)
     // Other nav items are not in v1 scope; the sidebar shows an inline
     // notice for those itself.
   }, [])
@@ -317,7 +318,7 @@ export default function App() {
         onNavigate={handleNavigate}
         currentUser={authUser}
         onLogout={handleLogout}
-        activeView={view}
+        activeView="board"
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -335,23 +336,16 @@ export default function App() {
               <div className="min-w-0">
                 <nav className="text-xs text-[#737373] dark:text-[#A3A3A3]">
                   Board 团队 <span className="mx-1">›</span>
-                  {view === 'settings' ? (
-                    <span className="font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">设置</span>
-                  ) : (
-                    <>
-                      <span className="text-[#737373] dark:text-[#A3A3A3]">梅尔特坎</span>
-                      <span className="mx-1">›</span>
-                      <span className="font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">项目看板</span>
-                    </>
-                  )}
+                  <span className="text-[#737373] dark:text-[#A3A3A3]">梅尔特坎</span>
+                  <span className="mx-1">›</span>
+                  <span className="font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">项目看板</span>
                 </nav>
                 <h1 className="mt-1 text-2xl font-bold leading-tight text-[#0A0A0A] dark:text-[#F5F5F5]">
-                  {view === 'settings' ? '设置' : 'BoardUI 设计任务'}
+                  BoardUI 设计任务
                 </h1>
               </div>
             </div>
-            {view === 'board' && (
-              <div ref={headerControlsRef} className="relative flex items-center gap-2">
+            <div ref={headerControlsRef} className="relative flex items-center gap-2">
                 <button
                   className={iconBtn}
                   aria-label="通知"
@@ -515,28 +509,16 @@ export default function App() {
                   </span>
                 )}
               </div>
-            )}
           </div>
         </header>
 
-        {/* Board / Settings */}
+        {/* Board */}
         <main
           className={`flex-1 overflow-hidden p-4 sm:p-5 ${
-            wideFill && view === 'board' ? 'w-full' : 'mx-auto w-full max-w-[1600px]'
+            wideFill ? 'w-full' : 'mx-auto w-full max-w-[1600px]'
           }`}
         >
-          {view === 'settings' ? (
-            <div className="h-full overflow-y-auto">
-              <Settings
-                user={authUser}
-                onUserChanged={(u) => setAuthUser(u)}
-                dark={dark}
-                onToggleDark={() => setDark((v) => !v)}
-              />
-            </div>
-          ) : (
-            <>
-              {moveError && (
+          {moveError && (
                 <div className="mb-3 flex items-center justify-between rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
                   <span>{moveError}</span>
                   <button
@@ -587,8 +569,6 @@ export default function App() {
                   onAddTicket={(s) => openNewTicket(s)}
                 />
               )}
-            </>
-          )}
         </main>
       </div>
 
@@ -606,6 +586,17 @@ export default function App() {
         initialStatus={newDialogStatus}
         onClose={() => setNewDialogOpen(false)}
         onCreated={() => void refreshBoard()}
+      />
+      <SettingsModal
+        open={settingsOpen}
+        user={authUser}
+        onUserChanged={(u) => setAuthUser(u)}
+        dark={dark}
+        onToggleDark={() => setDark((v) => !v)}
+        ticketCount={columns.reduce((n, c) => n + c.tickets.length, 0)}
+        userCount={users.length}
+        onLogout={handleLogout}
+        onClose={() => setSettingsOpen(false)}
       />
     </div>
   )

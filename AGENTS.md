@@ -30,4 +30,4 @@
 
 - 不碰 `backend/data/` 下的任何文件。
 - 不向仓库提交 `.env`、数据库文件或密钥。
-- 不擅自扩大 v1 范围（其他模板页均 out of scope；注册/登录与设置页已在 round 3 加入，不再是 out of scope）。
+- 不擅自扩大 v1 范围（其他模板页均 out of scope；注册/登录与设置弹窗已在 round 3 加入，不再是 out of scope）。

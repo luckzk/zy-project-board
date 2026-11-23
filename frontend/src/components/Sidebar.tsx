@@ -35,7 +35,7 @@ export default function Sidebar({
   onNavigate: (id: string) => void
   currentUser: AuthUser
   onLogout: () => void
-  activeView: 'board' | 'settings'
+  activeView: 'board'
 }) {
   const [query, setQuery] = useState('')
   // Inline notice for nav items that are not in v1 scope (no toast).
@@ -225,11 +225,9 @@ export default function Sidebar({
             onNavigate('settings')
           }}
           title="设置"
-          className={`flex items-center gap-3 rounded-[10px] px-3 py-2 text-sm ${
-            activeView === 'settings'
-              ? 'bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] font-medium text-white'
-              : 'text-[#737373] hover:bg-[#ECECEC] dark:text-[#A3A3A3] dark:hover:bg-[#262626] dark:hover:text-[#F5F5F5]'
-          } ${collapsed ? 'justify-center px-0' : ''}`}
+          className={`flex items-center gap-3 rounded-[10px] px-3 py-2 text-sm text-[#737373] hover:bg-[#ECECEC] dark:text-[#A3A3A3] dark:hover:bg-[#262626] dark:hover:text-[#F5F5F5] ${
+            collapsed ? 'justify-center px-0' : ''
+          }`}
         >
           <span className="flex h-4 w-4 items-center justify-center">
             <Icon name="settings" size={17} />
