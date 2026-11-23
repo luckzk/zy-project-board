@@ -1,25 +1,29 @@
-/** Create-ticket dialog genie — bottom sheet that grows from a thin
- * sliver (transform-origin bottom, 0.48s easeInOut).
+/** Create-ticket dialog genie — exact port of the original BoardUI
+ * create-ticket-modal-module. The panel (surface) carries an SVG warp
+ * filter: feFlood neutral grey + feImage field + feComposite over +
+ * feDisplacementMap + feGaussianBlur. Progress p: 1 = closed sliver,
+ * 0 = open. 0.48s easeInOut (cubic-bezier .42,0,.58,1). transform-origin
+ * bottom. The shadow scales with the same progress. Reduced motion: static.
  *
- * Deliberate divergence from the original (round 9): the original
- * create-ticket-modal-module warps the panel with an SVG filter
- * (feFlood + feImage field + feComposite + feDisplacementMap +
- * feGaussianBlur). Every filter-param change re-rasters the whole
- * 560px panel — the probe counted 24 param writes per open and 20-22
- * per close, i.e. ~12 full-panel filter re-rasters inside each 480ms
- * run — and that was the main source of the open/close stutter the
- * user reported (drawer genie, which is transform-only, is smooth).
- * This version keeps the exact same translateY/scaleY/opacity/shadow
- * math, so the sliver-growth motion is unchanged; only the displacement
- * warp is gone, and open/close now run on the compositor. Reduced
- * motion: static. */
+ * Round 10 restored the filter (round 9 had removed it to fix the
+ * open/close stutter). The user tested the original and found it
+ * acceptably smooth, and the round-8 "every 3rd frame" throttle likely
+ * made the warp feel worse — filter params jumping every 3rd frame
+ * while the transform moved every frame. So the filter params are
+ * updated on every frame now, exactly like the original's onUpdate
+ * driver, with no throttling. The round-9 scheduling fixes (submit
+ * defers the board refresh until the exit finishes; drawer edits mark
+ * the board dirty and refresh on close) are kept and live in
+ * NewTicketDialog/App, not here. */
 import { useEffect, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
   DIALOG_GENIE_DURATION_MS,
   DIALOG_GENIE_SHADOW,
+  dialogFieldDataUri,
   easeInOut,
   rangeEase,
+  uniqueId,
 } from '../lib/genie'
 
 interface DialogGenieProps {
@@ -29,8 +33,14 @@ interface DialogGenieProps {
 }
 
 export function DialogGenie({ exiting, onExitDone, children }: DialogGenieProps) {
+  const uidRef = useRef('')
+  if (!uidRef.current) uidRef.current = uniqueId('dlg')
+  const filterId = `ticket-genie-${uidRef.current}`
   const surfaceRef = useRef<HTMLDivElement>(null)
   const shadowRef = useRef<HTMLDivElement>(null)
+  const dispRef = useRef<SVGFEDisplacementMapElement>(null)
+  const blurRef = useRef<SVGFEGaussianBlurElement>(null)
+  const fieldRef = useRef<SVGFEImageElement>(null)
   const progressRef = useRef(1)
   const exitDoneRef = useRef(onExitDone)
   exitDoneRef.current = onExitDone
@@ -38,15 +48,19 @@ export function DialogGenie({ exiting, onExitDone, children }: DialogGenieProps)
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     [],
   )
+  const fieldUri = useMemo(() => dialogFieldDataUri(), [])
 
   useEffect(() => {
     const surface = surfaceRef.current
     const shadow = shadowRef.current
-    if (!surface || !shadow) return
+    const disp = dispRef.current
+    const blur = blurRef.current
+    if (!surface || !shadow || !disp || !blur) return
 
     if (reduced) {
       surface.style.willChange = 'auto'
       shadow.style.willChange = 'auto'
+      surface.style.filter = 'none'
       surface.style.transform = 'none'
       surface.style.opacity = '1'
       shadow.style.transform = 'none'
@@ -56,22 +70,29 @@ export function DialogGenie({ exiting, onExitDone, children }: DialogGenieProps)
       return
     }
 
+    const panelW = surface.offsetWidth
     const panelH = surface.offsetHeight
+    fieldRef.current?.setAttribute('width', String(panelW))
+    fieldRef.current?.setAttribute('height', String(panelH))
     const genieRect = surface.parentElement?.getBoundingClientRect()
     const g = Math.max(0, window.innerHeight - (genieRect?.bottom ?? window.innerHeight)) + 24
 
+    surface.style.filter = `url("#${filterId}")`
     surface.style.willChange = 'transform, opacity'
     shadow.style.willChange = 'transform, opacity'
 
-    // Same warp motion as before, minus the SVG filter: translateY +
-    // scaleY + opacity run every frame on the compositor, with no
-    // per-frame re-raster of the panel.
     const apply = (p: number) => {
       progressRef.current = p
       const r = rangeEase(0, 0.72, p)
       const y = g * rangeEase(0, 0.42, p)
       const n = rangeEase(0.32, 1, p)
       const scaleY = Math.max(0.001, ((panelH + y) * (1 - n)) / panelH)
+      // Round 10: filter params update every frame, exactly like the
+      // original's onUpdate driver — no throttling. The round-8 throttle
+      // (every 3rd frame) made the warp jump while the transform moved
+      // smoothly, which read as worse stutter, not better.
+      disp.setAttribute('scale', String(0.98 * panelW * r))
+      blur.setAttribute('stdDeviation', String(2 * rangeEase(0.8, 1, p)))
       surface.style.transform = `translateY(${y}px) scaleY(${scaleY})`
       surface.style.opacity = String(1 - rangeEase(0.94, 1, p))
       shadow.style.transform = `translateY(${y}px) scale(${1 - 0.65 * r}, ${1 - 0.9 * n})`
@@ -97,6 +118,7 @@ export function DialogGenie({ exiting, onExitDone, children }: DialogGenieProps)
       surface.style.willChange = 'auto'
       shadow.style.willChange = 'auto'
       if (!exiting) {
+        surface.style.filter = 'none'
         surface.style.transform = 'none'
       } else {
         exitDoneRef.current()
@@ -104,33 +126,47 @@ export function DialogGenie({ exiting, onExitDone, children }: DialogGenieProps)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [exiting, reduced])
+  }, [exiting, reduced, filterId])
 
   return (
-    <div style={{ isolation: 'isolate', position: 'relative' }}>
-      <div
-        ref={shadowRef}
-        aria-hidden="true"
-        style={{
-          pointerEvents: 'none',
-          transformOrigin: 'bottom',
-          borderRadius: 24,
-          position: 'absolute',
-          inset: 0,
-          boxShadow: DIALOG_GENIE_SHADOW,
-        }}
-      />
-      <div
-        ref={surfaceRef}
-        style={{
-          transformOrigin: 'bottom',
-          position: 'relative',
-          transform: reduced ? 'none' : 'scaleY(0.001)',
-          opacity: reduced ? 1 : 0,
-        }}
-      >
-        {children}
+    <>
+      <svg width="0" height="0" aria-hidden="true" className="pointer-events-none absolute">
+        <defs>
+          <filter id={filterId} x="-5%" y="-10%" width="110%" height="120%" colorInterpolationFilters="sRGB">
+            <feFlood floodColor="rgb(128,128,128)" result="neutral" />
+            <feImage ref={fieldRef} href={fieldUri} x="0" y="0" width="560" height="230" preserveAspectRatio="none" result="field" />
+            <feComposite in="field" in2="neutral" operator="over" result="warp" />
+            <feDisplacementMap ref={dispRef} in="SourceGraphic" in2="warp" scale={200} xChannelSelector="R" yChannelSelector="G" />
+            <feGaussianBlur ref={blurRef} stdDeviation={4} />
+          </filter>
+        </defs>
+      </svg>
+      <div style={{ isolation: 'isolate', position: 'relative' }}>
+        <div
+          ref={shadowRef}
+          aria-hidden="true"
+          style={{
+            pointerEvents: 'none',
+            transformOrigin: 'bottom',
+            borderRadius: 24,
+            position: 'absolute',
+            inset: 0,
+            boxShadow: DIALOG_GENIE_SHADOW,
+          }}
+        />
+        <div
+          ref={surfaceRef}
+          style={{
+            transformOrigin: 'bottom',
+            position: 'relative',
+            filter: reduced ? 'none' : `url("#${filterId}")`,
+            transform: reduced ? 'none' : 'scaleY(0.001)',
+            opacity: reduced ? 1 : 0,
+          }}
+        >
+          {children}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
