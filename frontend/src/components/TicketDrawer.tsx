@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api, formatTicketDate } from '../api'
 import {
   PRIORITY_LABELS,
@@ -195,7 +195,11 @@ export default function TicketDrawer({
   // lib/genie.ts for the math). The live surface is hidden while the warp
   // plays; the bands show a frozen clone of it, so real content is on
   // screen from the first frame and nothing ever flashes blank.
-  useEffect(() => {
+  // This MUST be a layout effect, not a plain effect: a plain effect
+  // runs after the first paint, so the bare live panel was painted for
+  // several frames before the bands covered it. A layout effect builds
+  // the bands and hides the surface before the browser paints anything.
+  useLayoutEffect(() => {
     if (!mounted || ticketId == null) return
     const genieEl = genieRef.current
     const surfaceEl = surfaceRef.current
@@ -215,7 +219,6 @@ export default function TicketDrawer({
     }
 
     let cancelled = false
-    let outerRaf = 0
     let innerRaf = 0
     const anims: Animation[] = []
     const from = progressRef.current
@@ -288,6 +291,11 @@ export default function TicketDrawer({
       // Opening waits two frames after the bands are in place so the
       // browser paints them at their initial warp before the WAAPI
       // animations take over (original); closing starts immediately.
+      // Hide the live surface BEFORE the two-frame wait: the bands (a
+      // frozen clone) are the only thing the user ever sees during the
+      // warp. Hiding it after the wait flashed the full panel for
+      // several frames before the animation covered it.
+      surfaceEl.style.opacity = '0'
       if (!closing) {
         bandsEl.style.opacity = '0.001'
         await new Promise<void>((resolve) => {
@@ -297,7 +305,6 @@ export default function TicketDrawer({
         })
         if (cancelled) return
       }
-      surfaceEl.style.opacity = '0'
       bandsEl.style.opacity = '1'
       const steps = genieSteps(from, to)
       for (const { element, top, bottom } of bands) {
@@ -344,18 +351,14 @@ export default function TicketDrawer({
       }
     }
 
-    if (closing) {
-      void run()
-    } else {
-      outerRaf = requestAnimationFrame(() => {
-        outerRaf = requestAnimationFrame(() => {
-          void run()
-        })
-      })
-    }
+    // Run synchronously: this is a layout effect, so the band setup and
+    // the surface hide happen before the browser's first paint — the
+    // user never sees the bare live panel ahead of the warp. (The old
+    // code delayed run() by two animation frames, which left the full
+    // panel on screen before the animation started.)
+    void run()
     return () => {
       cancelled = true
-      cancelAnimationFrame(outerRaf)
       cancelAnimationFrame(innerRaf)
       const clock = anims.find((a) => a.playState === 'running' || a.playState === 'paused')
       if (clock) {

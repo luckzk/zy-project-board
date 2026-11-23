@@ -87,6 +87,10 @@ body {
 .genie-surface { height: 100%; min-height: 0; position: relative; }
 .genie-shadow {
   pointer-events: none;
+  /* Hidden until the warp or the open completion shows it: otherwise
+   * the shadow halo would be visible on its own during the two-frame
+   * wait before the warp starts. */
+  opacity: 0;
   transform-origin: 100% 100%;
   border-radius: 24px;
   position: absolute;
