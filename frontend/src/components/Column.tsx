@@ -1,8 +1,9 @@
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { BoardColumn, Project, Ticket, TicketStatus, User } from '../types'
 import TicketCard from './TicketCard'
+import Icon from './Icon'
 
 export default function Column({
   column,
@@ -20,9 +21,18 @@ export default function Column({
   const { setNodeRef, isOver } = useDroppable({ id: `column-${column.status}` })
   const [menuOpen, setMenuOpen] = useState(false)
 
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
   return (
     <section
-      className={`flex w-[304px] shrink-0 flex-col rounded-2xl bg-[#eef0f2] p-3 dark:bg-slate-800/60 xl:w-auto xl:min-w-[260px] xl:flex-1 ${
+      className={`flex h-full w-[304px] shrink-0 flex-col rounded-2xl bg-[#eef0f2] p-3 dark:bg-slate-800/60 xl:w-auto xl:min-w-[260px] xl:flex-1 ${
         isOver ? 'ring-2 ring-blue-400/60' : ''
       }`}
     >
@@ -35,10 +45,10 @@ export default function Column({
         <span className="relative">
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="rounded-md px-1.5 py-0.5 text-base leading-none text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
             aria-label={`${column.label} 更多选项`}
           >
-            …
+            <Icon name="dots" size={16} />
           </button>
           {menuOpen && (
             <>
@@ -59,10 +69,10 @@ export default function Column({
         </span>
         <button
           onClick={() => onAddTicket(column.status)}
-          className="rounded-md px-1.5 py-0.5 text-base leading-none text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
           aria-label={`在${column.label}添加票据`}
         >
-          +
+          <Icon name="plus" size={16} />
         </button>
       </header>
       <div ref={setNodeRef} className="flex min-h-[120px] flex-1 flex-col gap-3 overflow-y-auto pb-1">

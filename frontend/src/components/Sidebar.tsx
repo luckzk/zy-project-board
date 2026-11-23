@@ -1,15 +1,16 @@
 import { useState } from 'react'
+import Icon, { type IconName } from './Icon'
 
-const NAV = [
-  { id: 'home', label: '主页', icon: '⌂', count: 152 },
-  { id: 'board', label: '项目看板', icon: '▦' },
-  { id: 'marketing', label: '营销', icon: '◉' },
-  { id: 'calendar', label: '日历', icon: '▤' },
-  { id: 'finance', label: '财务', icon: '$' },
-  { id: 'medical', label: '医疗报告', icon: '+' },
-  { id: 'ai-chat', label: 'AI 聊天', icon: '✦' },
-  { id: 'ai-image', label: 'AI 图像生成', icon: '▧' },
-  { id: 'profile', label: '个人资料', icon: '◍' },
+const NAV: { id: string; label: string; icon: IconName; count?: number }[] = [
+  { id: 'home', label: '主页', icon: 'home', count: 152 },
+  { id: 'board', label: '项目看板', icon: 'board' },
+  { id: 'marketing', label: '营销', icon: 'megaphone' },
+  { id: 'calendar', label: '日历', icon: 'calendar' },
+  { id: 'finance', label: '财务', icon: 'chart' },
+  { id: 'medical', label: '医疗报告', icon: 'medical' },
+  { id: 'ai-chat', label: 'AI 聊天', icon: 'sparkles' },
+  { id: 'ai-image', label: 'AI 图像生成', icon: 'image' },
+  { id: 'profile', label: '个人资料', icon: 'user' },
 ]
 
 export default function Sidebar({
@@ -51,10 +52,10 @@ export default function Sidebar({
             <button
               onClick={onToggleCollapse}
               title="收起侧边栏"
-              className="rounded-md px-1.5 py-0.5 text-base leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
               aria-label="收起侧边栏"
             >
-              «
+              <Icon name="chevronLeft" size={16} />
             </button>
           </>
         )}
@@ -64,7 +65,9 @@ export default function Sidebar({
       {!collapsed && (
         <div className="px-3 pb-2">
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-800">
-            <span className="text-sm leading-none text-slate-400">⌕</span>
+            <span className="text-slate-400">
+              <Icon name="search" size={16} />
+            </span>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -95,7 +98,9 @@ export default function Sidebar({
                 : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
             } ${collapsed ? 'justify-center px-0' : ''}`}
           >
-            <span className="text-base leading-none">{item.icon}</span>
+            <span className="flex h-4 w-4 items-center justify-center">
+              <Icon name={item.icon} size={17} />
+            </span>
             {!collapsed && (
               <>
                 <span className="flex-1">{item.label}</span>
@@ -131,7 +136,7 @@ export default function Sidebar({
                   : 'text-slate-500 dark:text-slate-400'
               }`}
             >
-              ☀ 浅色
+              <Icon name="sun" size={14} /> 浅色
             </button>
             <button
               onClick={() => !dark && onToggleDark()}
@@ -141,7 +146,7 @@ export default function Sidebar({
                   : 'text-slate-500 dark:text-slate-400'
               }`}
             >
-              ☾ 深色
+              <Icon name="moon" size={14} /> 深色
             </button>
           </div>
         )}
@@ -151,7 +156,9 @@ export default function Sidebar({
             title={dark ? '切换到浅色' : '切换到深色'}
             className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            <span className="text-base leading-none">{dark ? '☀' : '☾'}</span>
+            <span className="flex h-4 w-4 items-center justify-center">
+              <Icon name={dark ? 'sun' : 'moon'} size={17} />
+            </span>
           </button>
         )}
         <a
@@ -165,7 +172,9 @@ export default function Sidebar({
             collapsed ? 'justify-center px-0' : ''
           }`}
         >
-          <span className="text-base leading-none">?</span>
+          <span className="flex h-4 w-4 items-center justify-center">
+            <Icon name="help" size={17} />
+          </span>
           {!collapsed && <span>支持</span>}
         </a>
         <a
@@ -179,7 +188,9 @@ export default function Sidebar({
             collapsed ? 'justify-center px-0' : ''
           }`}
         >
-          <span className="text-base leading-none">⚙</span>
+          <span className="flex h-4 w-4 items-center justify-center">
+            <Icon name="settings" size={17} />
+          </span>
           {!collapsed && <span>设置</span>}
         </a>
         {!collapsed && (

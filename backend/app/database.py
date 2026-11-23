@@ -2,6 +2,7 @@
 
 SQLite file lives at backend/data/board.db (created on startup).
 """
+import json
 import os
 from pathlib import Path
 
@@ -50,4 +51,25 @@ def init_db():
                 conn.execute(
                     text("UPDATE tickets SET category = :category WHERE code = :code AND (category IS NULL OR category = '')"),
                     {"category": category, "code": code},
+                )
+
+    # One-time seed correction: DS-38 ships with two assignees (Maya Chen,
+    # Priya Shah) in seed.py, but an earlier deploy left Daniel Kim attached
+    # on some existing DBs (seed only runs when the table is empty, so it
+    # never repairs that). Remove him from DS-38 only, preserving any other
+    # assignees; no-op when he is already absent.
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT assignee_ids FROM tickets WHERE code = 'DS-38'")
+        ).fetchone()
+        if row is not None:
+            try:
+                assignees = json.loads(row[0] or "[]")
+            except (TypeError, ValueError):
+                assignees = []
+            if isinstance(assignees, list) and "u-daniel" in assignees:
+                assignees = [a for a in assignees if a != "u-daniel"]
+                conn.execute(
+                    text("UPDATE tickets SET assignee_ids = :ids WHERE code = 'DS-38'"),
+                    {"ids": json.dumps(assignees, ensure_ascii=False)},
                 )

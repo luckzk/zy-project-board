@@ -9,6 +9,7 @@ import {
   type User,
 } from '../types'
 import { Avatar } from './Avatar'
+import Icon from './Icon'
 
 export default function NewTicketDialog({
   open,
@@ -103,10 +104,10 @@ export default function NewTicketDialog({
           <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">新建票据</h2>
           <button
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-lg leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="关闭"
           >
-            ×
+            <Icon name="close" size={18} />
           </button>
         </div>
 

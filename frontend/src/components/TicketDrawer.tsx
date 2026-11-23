@@ -13,6 +13,7 @@ import {
 } from '../types'
 import { Avatar, AvatarStack } from './Avatar'
 import TokenChart from './TokenChart'
+import Icon from './Icon'
 
 export default function TicketDrawer({
   ticketId,
@@ -47,6 +48,15 @@ export default function TicketDrawer({
   const [starred, setStarred] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [copied, setCopied] = useState('')
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [menuOpen])
 
   function formatRelative(iso: string): string {
     const d = new Date(iso)
@@ -198,12 +208,12 @@ export default function TicketDrawer({
           {copied && <span className="shrink-0 text-xs text-emerald-600">{copied}</span>}
           <button
             onClick={() => setStarred((v) => !v)}
-            className={`rounded-lg px-2 py-1 text-base leading-none hover:bg-slate-100 dark:hover:bg-slate-800 ${
+            className={`flex h-8 w-8 items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 ${
               starred ? 'text-amber-500' : 'text-slate-400'
             }`}
             aria-label="收藏"
           >
-            {starred ? '★' : '☆'}
+            <Icon name="star" size={18} filled={starred} />
           </button>
           <button
             onClick={() =>
@@ -212,19 +222,19 @@ export default function TicketDrawer({
                 '链接已复制',
               )
             }
-            className="rounded-lg px-2 py-1 text-base leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="复制链接"
             title="复制链接"
           >
-            ⧉
+            <Icon name="link" size={18} />
           </button>
           <span className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              className="rounded-lg px-2 py-1 text-base leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
               aria-label="更多操作"
             >
-              …
+              <Icon name="dots" size={18} />
             </button>
             {menuOpen && ticket && (
               <>
@@ -272,10 +282,10 @@ export default function TicketDrawer({
           </span>
           <button
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-lg leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
             aria-label="关闭"
           >
-            ×
+            <Icon name="close" size={18} />
           </button>
         </div>
         {confirmDelete && ticket && (
@@ -404,6 +414,15 @@ export default function TicketDrawer({
                 </div>
               </div>
 
+              {/* Token chart — right after the fields so it is visible
+                  without scrolling deep into the drawer. */}
+              <div>
+                <span className="mb-2 block text-xs text-slate-500 dark:text-slate-400">
+                  Token 消耗 · {project?.name ?? ''}
+                </span>
+                <TokenChart stats={tokenStats} />
+              </div>
+
               {/* Assignees multi-select */}
               <div>
                 <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
@@ -496,14 +515,6 @@ export default function TicketDrawer({
                 >
                   figma.com
                 </a>
-              </div>
-
-              {/* Token chart */}
-              <div>
-                <span className="mb-2 block text-xs text-slate-500 dark:text-slate-400">
-                  Token 消耗 · {project?.name ?? ''}
-                </span>
-                <TokenChart stats={tokenStats} />
               </div>
 
               {/* Comments */}

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { formatTokens } from '../api'
 import type { TokenStats } from '../types'
+import Icon from './Icon'
 
 export default function TokenChart({ stats }: { stats: TokenStats | null }) {
   const points = stats?.points ?? []
@@ -41,13 +42,13 @@ export default function TokenChart({ stats }: { stats: TokenStats | null }) {
           </div>
         </div>
         <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+          className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${
             up
               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
               : 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
           }`}
         >
-          {up ? '▲' : '▼'} {Math.abs(stats.delta_pct).toFixed(1)}%
+          <Icon name={up ? 'chevronUp' : 'chevronDown'} size={12} /> {Math.abs(stats.delta_pct).toFixed(1)}%
         </span>
       </div>
       <svg viewBox="0 0 320 110" className="mt-3 w-full" role="img" aria-label="Token 消耗趋势图">

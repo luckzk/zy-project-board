@@ -101,7 +101,7 @@ export default function Board({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveTicket(null)}
     >
-      <div className="flex h-full items-start gap-4 overflow-x-auto pb-2 xl:overflow-visible">
+      <div className="flex h-full items-stretch gap-4 overflow-x-auto pb-2 xl:overflow-visible">
         {columns.map((column) => (
           <Column
             key={column.status}

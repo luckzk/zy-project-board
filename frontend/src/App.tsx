@@ -14,6 +14,7 @@ import Sidebar from './components/Sidebar'
 import Board from './components/Board'
 import TicketDrawer from './components/TicketDrawer'
 import NewTicketDialog from './components/NewTicketDialog'
+import Icon from './components/Icon'
 
 type SortMode = 'manual' | 'priority' | 'title'
 type Popover = 'sort' | 'filter' | 'display' | 'notif' | 'inbox' | null
@@ -55,6 +56,31 @@ export default function App() {
   const [popover, setPopover] = useState<Popover>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<number | null>(null)
+  const headerControlsRef = useRef<HTMLDivElement>(null)
+
+  // Close any open header popover on Escape or on a click outside the
+  // header controls (the toggle buttons live inside the ref, so clicking
+  // one still toggles instead of being swallowed by an overlay).
+  useEffect(() => {
+    if (!popover) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (
+        headerControlsRef.current &&
+        !headerControlsRef.current.contains(e.target as Node)
+      ) {
+        setPopover(null)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPopover(null)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [popover])
 
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   const [newDialogOpen, setNewDialogOpen] = useState(false)
@@ -197,10 +223,10 @@ export default function App() {
             <div className="flex min-w-0 items-center gap-3">
               <button
                 onClick={() => setMobileSidebar(true)}
-                className="rounded-lg px-2 py-1 text-lg leading-none text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 md:hidden"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 md:hidden"
                 aria-label="打开菜单"
               >
-                ☰
+                <Icon name="menu" size={20} />
               </button>
               <div className="min-w-0">
                 <nav className="text-xs text-slate-400 dark:text-slate-500">
@@ -214,13 +240,13 @@ export default function App() {
                 </h1>
               </div>
             </div>
-            <div className="relative flex items-center gap-2">
+            <div ref={headerControlsRef} className="relative flex items-center gap-2">
               <button
                 className={iconBtn}
                 aria-label="通知"
                 onClick={() => setPopover(popover === 'notif' ? null : 'notif')}
               >
-                🔔
+                <Icon name="bell" size={18} />
                 <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
                   5
                 </span>
@@ -230,7 +256,7 @@ export default function App() {
                 aria-label="收件箱"
                 onClick={() => setPopover(popover === 'inbox' ? null : 'inbox')}
               >
-                ✉
+                <Icon name="inbox" size={18} />
               </button>
               <button
                 className={iconBtn}
@@ -238,21 +264,21 @@ export default function App() {
                 title={`排序：${sortLabel}`}
                 onClick={() => setPopover(popover === 'sort' ? null : 'sort')}
               >
-                ↕
+                <Icon name="sort" size={18} />
               </button>
               <button
                 className={iconBtn}
                 aria-label="筛选"
                 onClick={() => setPopover(popover === 'filter' ? null : 'filter')}
               >
-                ⏷
+                <Icon name="filter" size={18} />
               </button>
               <button
                 className={iconBtn}
                 aria-label="显示选项"
                 onClick={() => setPopover(popover === 'display' ? null : 'display')}
               >
-                ▦
+                <Icon name="layout" size={18} />
               </button>
               <button
                 onClick={() => openNewTicket()}
@@ -262,12 +288,7 @@ export default function App() {
               </button>
 
               {popover && (
-                <>
-                  <span
-                    className="fixed inset-0 z-30"
-                    onClick={() => setPopover(null)}
-                  />
-                  <span className="absolute right-0 top-11 z-40 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                <span className="absolute right-0 top-11 z-40 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
                     {popover === 'sort' && (
                       <span className="block p-2">
                         <span className="block px-2 pb-1 pt-1 text-xs font-medium text-slate-400">排序</span>
@@ -379,7 +400,9 @@ export default function App() {
                     )}
                     {popover === 'inbox' && (
                       <span className="block p-6 text-center">
-                        <span className="block text-2xl">✉</span>
+                        <span className="flex justify-center text-slate-300 dark:text-slate-600">
+                          <Icon name="inbox" size={32} />
+                        </span>
                         <span className="mt-2 block text-sm font-medium text-slate-700 dark:text-slate-200">
                           收件箱是空的
                         </span>
@@ -387,7 +410,6 @@ export default function App() {
                       </span>
                     )}
                   </span>
-                </>
               )}
             </div>
           </div>
@@ -402,8 +424,12 @@ export default function App() {
           {moveError && (
             <div className="mb-3 flex items-center justify-between rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
               <span>{moveError}</span>
-              <button onClick={() => setMoveError(null)} className="px-2" aria-label="关闭提示">
-                ×
+              <button
+                onClick={() => setMoveError(null)}
+                className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-red-100 dark:hover:bg-red-900"
+                aria-label="关闭提示"
+              >
+                <Icon name="close" size={14} />
               </button>
             </div>
           )}
