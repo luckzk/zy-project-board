@@ -1,0 +1,22 @@
+# zy-project-board — Docker Compose
+
+services:
+  backend:
+    build: ./backend
+    container_name: zy-board-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - API_KEY=${API_KEY:?API_KEY 未设置，请复制 .env.example 为 .env 并填写}
+    volumes:
+      - ./backend/data:/app/data
+
+  frontend:
+    build: ./frontend
+    container_name: zy-board-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
