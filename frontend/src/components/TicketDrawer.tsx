@@ -127,10 +127,16 @@ export default function TicketDrawer({
 
   // Image paste / drag-drop / file-picker upload, shared by the
   // description editor and the comment box (see lib/useImagePaste).
+  // Uploads carry the ticket id so the backend can enforce project
+  // membership for JWT callers.
   const editDescRef = useRef<HTMLTextAreaElement | null>(null)
-  const descPaste = useImagePaste(editDescRef, editDesc, setEditDesc)
+  const descPaste = useImagePaste(editDescRef, editDesc, setEditDesc, () =>
+    ticketId != null ? { ticket_id: ticketId } : undefined,
+  )
   const commentRef = useRef<HTMLTextAreaElement | null>(null)
-  const commentPaste = useImagePaste(commentRef, commentBody, setCommentBody)
+  const commentPaste = useImagePaste(commentRef, commentBody, setCommentBody, () =>
+    ticketId != null ? { ticket_id: ticketId } : undefined,
+  )
   // the panel is cloned, sliced into horizontal bands and warped with a
   // matrix3d funnel toward a point just outside its bottom-right corner
   // over 480ms. `closing` starts the reverse warp; the parent only clears

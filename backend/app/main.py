@@ -5,6 +5,11 @@ Auth:  writes require header ``X-API-Key`` matching env ``API_KEY``
        (default ``dev-api-key-change-me``) OR a JWT from /api/auth/login
        as ``Authorization: Bearer <token>``; GETs are public.
        JWT secret comes from env ``SECRET_KEY`` (dev fallback only).
+       Project permissions (round 13): a JWT caller only sees the
+       projects they are a member of (and their tickets, comments and
+       notifications); an X-API-Key caller is the trusted management
+       path and sees everything. Non-members answer 404, the same as
+       "does not exist".
 """
 import json
 import os
@@ -16,15 +21,30 @@ from pathlib import Path
 
 import bcrypt
 import jwt
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.database import backfill_notifications, get_db, init_db, SessionLocal
-from app.models import Account, Comment, DirectoryUser, Notification, Ticket
+from app.database import (
+    backfill_notifications,
+    backfill_project_members,
+    get_db,
+    init_db,
+    SessionLocal,
+)
+from app.models import (
+    Account,
+    Comment,
+    DirectoryUser,
+    Notification,
+    Project,
+    ProjectMember,
+    Ticket,
+)
 from app.schemas import (
+    AccountOut,
     AuthLogin,
     AuthOut,
     AuthRegister,
@@ -35,8 +55,12 @@ from app.schemas import (
     CommentCreate,
     CommentOut,
     MarkAllReadOut,
+    MemberAddIn,
     NotificationOut,
+    ProjectCreate,
+    ProjectMemberOut,
     ProjectOut,
+    ProjectUpdate,
     TicketCreate,
     TicketOut,
     TicketUpdate,
@@ -51,11 +75,11 @@ from app.schemas import (
     UserSyncOut,
 )
 from app.seed import (
-    PROJECTS,
     USER_NAMES,
     seed_demo_account,
     seed_directory_users,
     seed_if_empty,
+    seed_projects,
 )
 
 API_KEY = os.environ.get("API_KEY", "dev-api-key-change-me")
@@ -106,6 +130,8 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_if_empty(db)
+        # Projects must exist before the member backfill below.
+        seed_projects(db)
         # Backfill after seeding: a fresh DB has no tickets to backfill
         # from until seed_if_empty runs; an existing DB gets its real
         # history once, because backfill is a no-op when the table is
@@ -113,6 +139,9 @@ async def lifespan(app: FastAPI):
         backfill_notifications(db)
         seed_directory_users(db)
         seed_demo_account(db)
+        # Last: every existing account joins every existing project, so
+        # the permission upgrade locks nobody out. Idempotent.
+        backfill_project_members(db)
     finally:
         db.close()
     yield
@@ -216,6 +245,103 @@ def _jwt_account_or_none(
         except HTTPException:
             return None
     return None
+
+
+# ---- Project permissions (round 13) ----
+#
+# Two caller kinds, distinguished on every request that touches project
+# data:
+# - ``api_key``: a valid X-API-Key (MCP / scripts). Trusted management
+#   path: no membership check, all projects and tickets are visible,
+#   so existing MCP capability is unchanged.
+# - ``jwt``: a logged-in account (the browser UI). Only member projects
+#   are visible; everything else answers 404 — the same response as
+#   "does not exist", so a 404 never leaks whether the project or
+#   ticket exists.
+# - ``anon``: no credential at all. Public GETs behave exactly as
+#   before (unfiltered); writes are already rejected by
+#   require_write_auth.
+
+def _auth_context(
+    authorization: str | None,
+    x_api_key: str | None,
+    db: Session,
+) -> tuple[str, Account | None]:
+    if x_api_key is not None and x_api_key == API_KEY:
+        return ("api_key", None)
+    account = _jwt_account_or_none(authorization, db)
+    if account is not None:
+        return ("jwt", account)
+    return ("anon", None)
+
+
+def _member_project_ids(db: Session, account: Account) -> set[str]:
+    return {
+        row[0]
+        for row in db.query(ProjectMember.project_id)
+        .filter(ProjectMember.account_id == account.id)
+        .all()
+    }
+
+
+def _is_member(db: Session, account: Account, project_id: str) -> bool:
+    return (
+        db.query(ProjectMember)
+        .filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.account_id == account.id,
+        )
+        .first()
+        is not None
+    )
+
+
+def _require_project_visible(
+    db: Session,
+    auth: tuple[str, Account | None],
+    project_id: str,
+) -> None:
+    """404 unless the caller may see this project.
+
+    JWT callers must be members; API-Key and anonymous callers are
+    not restricted. A missing project answers the same 404.
+    """
+    kind, account = auth
+    if kind == "jwt" and account is not None and not _is_member(db, account, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+
+
+def _require_ticket_access(
+    db: Session,
+    auth: tuple[str, Account | None],
+    ticket: Ticket,
+) -> None:
+    """404 unless the caller may see this ticket (membership of the
+    ticket's project for JWT callers; unrestricted otherwise)."""
+    kind, account = auth
+    if kind == "jwt" and account is not None and not _is_member(db, account, ticket.project_id):
+        raise HTTPException(status_code=404, detail="ticket not found")
+
+
+def _project_out(db: Session, p: Project) -> ProjectOut:
+    return ProjectOut(
+        id=p.id,
+        name=p.name,
+        member_count=db.query(ProjectMember)
+        .filter(ProjectMember.project_id == p.id)
+        .count(),
+        ticket_count=db.query(Ticket).filter(Ticket.project_id == p.id).count(),
+    )
+
+
+def _member_out(db: Session, m: ProjectMember) -> ProjectMemberOut:
+    account = db.query(Account).filter(Account.id == m.account_id).first()
+    return ProjectMemberOut(
+        account_id=m.account_id,
+        name=account.name if account else f"账号 {m.account_id}",
+        email=account.email if account else "",
+        role=m.role,
+    )
 
 
 def user_out(u: DirectoryUser) -> UserOut:
@@ -541,8 +667,219 @@ def sync_users(
 
 
 @app.get("/api/projects", response_model=list[ProjectOut])
-def list_projects():
-    return PROJECTS
+def list_projects(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    """Projects, with member and ticket counts.
+
+    A logged-in (JWT) caller sees only the projects they are a member
+    of; API-Key and anonymous callers see all of them.
+    """
+    kind, account = _auth_context(authorization, x_api_key, db)
+    query = db.query(Project).order_by(Project.name, Project.id)
+    if kind == "jwt" and account is not None:
+        query = query.filter(Project.id.in_(_member_project_ids(db, account)))
+    return [_project_out(db, p) for p in query.all()]
+
+
+@app.post("/api/projects", response_model=ProjectOut, status_code=201)
+def create_project(
+    payload: ProjectCreate,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    _auth=Depends(require_write_auth),
+):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+    if len(name) > 100:
+        raise HTTPException(status_code=422, detail="name is too long")
+    project = Project(
+        id=f"p-{uuid.uuid4().hex[:12]}",
+        name=name,
+        created_at=datetime.utcnow(),
+    )
+    db.add(project)
+    # The creator joins automatically. An API-Key caller has no
+    # account, so its projects start with no members (add them via
+    # POST /api/projects/{id}/members).
+    account = _jwt_account_or_none(authorization, db)
+    if account is not None:
+        db.add(
+            ProjectMember(
+                project_id=project.id,
+                account_id=account.id,
+                role="member",
+                created_at=datetime.utcnow(),
+            )
+        )
+    db.commit()
+    db.refresh(project)
+    return _project_out(db, project)
+
+
+@app.patch("/api/projects/{project_id}", response_model=ProjectOut)
+def rename_project(
+    project_id: str,
+    payload: ProjectUpdate,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    _auth=Depends(require_write_auth),
+):
+    """Rename a project. JWT callers must be members (404 otherwise)."""
+    auth = _auth_context(authorization, x_api_key, db)
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    _require_project_visible(db, auth, project_id)
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+    if len(name) > 100:
+        raise HTTPException(status_code=422, detail="name is too long")
+    project.name = name
+    db.commit()
+    db.refresh(project)
+    return _project_out(db, project)
+
+
+@app.delete("/api/projects/{project_id}", status_code=204)
+def delete_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    _auth=Depends(require_write_auth),
+):
+    """Delete a project — only when it has no tickets left (400
+    otherwise). JWT callers must be members (404 otherwise)."""
+    auth = _auth_context(authorization, x_api_key, db)
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    _require_project_visible(db, auth, project_id)
+    ticket_count = db.query(Ticket).filter(Ticket.project_id == project_id).count()
+    if ticket_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"项目下还有 {ticket_count} 张票据，无法删除",
+        )
+    db.query(ProjectMember).filter(ProjectMember.project_id == project_id).delete()
+    db.delete(project)
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/api/projects/{project_id}/members", response_model=list[ProjectMemberOut])
+def list_project_members(
+    project_id: str,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    """Members of a project. JWT callers must be members (404
+    otherwise); the project itself answers 404 when it does not exist."""
+    auth = _auth_context(authorization, x_api_key, db)
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    _require_project_visible(db, auth, project_id)
+    members = (
+        db.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id)
+        .order_by(ProjectMember.account_id)
+        .all()
+    )
+    return [_member_out(db, m) for m in members]
+
+
+@app.post("/api/projects/{project_id}/members", response_model=ProjectMemberOut)
+def add_project_member(
+    project_id: str,
+    payload: MemberAddIn,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    _auth=Depends(require_write_auth),
+):
+    """Add a member. Any member may add members. Idempotent: adding
+    someone who is already a member returns the existing membership."""
+    auth = _auth_context(authorization, x_api_key, db)
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    _require_project_visible(db, auth, project_id)
+    account = db.query(Account).filter(Account.id == payload.account_id).first()
+    if account is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    existing = (
+        db.query(ProjectMember)
+        .filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.account_id == payload.account_id,
+        )
+        .first()
+    )
+    if existing is not None:
+        return _member_out(db, existing)
+    member = ProjectMember(
+        project_id=project_id,
+        account_id=payload.account_id,
+        role="member",
+        created_at=datetime.utcnow(),
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    return _member_out(db, member)
+
+
+@app.delete("/api/projects/{project_id}/members/{account_id}", status_code=204)
+def remove_project_member(
+    project_id: str,
+    account_id: int,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    _auth=Depends(require_write_auth),
+):
+    """Remove a member. Any member may remove members, except the last
+    one: a project always keeps at least one member."""
+    auth = _auth_context(authorization, x_api_key, db)
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    _require_project_visible(db, auth, project_id)
+    member = (
+        db.query(ProjectMember)
+        .filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.account_id == account_id,
+        )
+        .first()
+    )
+    if member is None:
+        raise HTTPException(status_code=404, detail="member not found")
+    remaining = (
+        db.query(ProjectMember).filter(ProjectMember.project_id == project_id).count()
+    )
+    if remaining <= 1:
+        raise HTTPException(status_code=400, detail="不能移除项目的最后一名成员")
+    db.delete(member)
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/api/accounts", response_model=list[AccountOut])
+def list_accounts(db: Session = Depends(get_db)):
+    """Login accounts, for the member picker: id, name and email only."""
+    return [
+        AccountOut(id=a.id, name=a.name, email=a.email)
+        for a in db.query(Account).order_by(Account.name, Account.id).all()
+    ]
 
 
 def _list_tickets(
@@ -551,6 +888,7 @@ def _list_tickets(
     priority: str | None = None,
     project: str | None = None,
     q: str | None = None,
+    auth: tuple[str, Account | None] | None = None,
 ):
     query = db.query(Ticket)
     if status:
@@ -564,6 +902,9 @@ def _list_tickets(
         query = query.filter(
             (Ticket.title.ilike(like)) | (Ticket.code.ilike(like))
         )
+    # JWT callers only see tickets in projects they are members of.
+    if auth is not None and auth[0] == "jwt" and auth[1] is not None:
+        query = query.filter(Ticket.project_id.in_(_member_project_ids(db, auth[1])))
     tickets = query.order_by(Ticket.status, Ticket.position, Ticket.id).all()
     return [ticket_out(t) for t in tickets]
 
@@ -575,8 +916,13 @@ def list_tickets(
     priority: str | None = Query(default=None),
     project: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
 ):
-    return _list_tickets(db, status, priority, project, q)
+    return _list_tickets(
+        db, status, priority, project, q,
+        _auth_context(authorization, x_api_key, db),
+    )
 
 
 @app.get("/api/t", response_model=list[TicketOut])
@@ -586,20 +932,33 @@ def list_tickets_short(
     priority: str | None = Query(default=None),
     project: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
 ):
-    return _list_tickets(db, status, priority, project, q)
+    return _list_tickets(
+        db, status, priority, project, q,
+        _auth_context(authorization, x_api_key, db),
+    )
 
 
 @app.get("/api/board", response_model=BoardOut)
-def get_board(db: Session = Depends(get_db)):
+def get_board(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    kind, account = _auth_context(authorization, x_api_key, db)
+    member_ids = (
+        _member_project_ids(db, account)
+        if kind == "jwt" and account is not None
+        else None
+    )
     columns = []
     for status in STATUSES:
-        tickets = (
-            db.query(Ticket)
-            .filter(Ticket.status == status)
-            .order_by(Ticket.position, Ticket.id)
-            .all()
-        )
+        query = db.query(Ticket).filter(Ticket.status == status)
+        if member_ids is not None:
+            query = query.filter(Ticket.project_id.in_(member_ids))
+        tickets = query.order_by(Ticket.position, Ticket.id).all()
         outs = [ticket_out(t) for t in tickets]
         columns.append(
             BoardColumn(
@@ -614,20 +973,35 @@ def get_board(db: Session = Depends(get_db)):
 
 
 @app.get("/api/tickets/{ticket_id}", response_model=TicketOut)
-def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
-    return ticket_out(get_ticket_or_404(db, ticket_id))
+def get_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    t = get_ticket_or_404(db, ticket_id)
+    _require_ticket_access(db, _auth_context(authorization, x_api_key, db), t)
+    return ticket_out(t)
 
 
 @app.get("/api/tickets/by-code/{code}", response_model=TicketOut)
-def get_ticket_by_code(code: str, db: Session = Depends(get_db)):
+def get_ticket_by_code(
+    code: str,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
     """One ticket by its public code (e.g. FE-87), for deep links.
 
     The drawer link is ``/#ticket=<code>``; the frontend resolves the
-    code to an id through this endpoint. Unknown codes are 404.
+    code to an id through this endpoint. Unknown codes are 404 — and so
+    are codes in projects the JWT caller is not a member of (the two
+    cases are deliberately indistinguishable).
     """
     t = db.query(Ticket).filter(Ticket.code == code).first()
     if t is None:
         raise HTTPException(status_code=404, detail="ticket not found")
+    _require_ticket_access(db, _auth_context(authorization, x_api_key, db), t)
     return ticket_out(t)
 
 
@@ -653,6 +1027,10 @@ def create_ticket(
     # JWT forces the logged-in account's name; an API-Key caller may
     # pass created_by, otherwise it is recorded as "API".
     account = _jwt_account_or_none(authorization, db)
+    # JWT callers may only create tickets in projects they belong to;
+    # a project that does not exist (or is not theirs) answers 404.
+    if account is not None and not _is_member(db, account, payload.project_id):
+        raise HTTPException(status_code=404, detail="project not found")
     created_by = account.name if account is not None else (payload.created_by or "API")
     t = Ticket(
         code=next_code(db, prefix),
@@ -689,10 +1067,23 @@ def update_ticket(
     ticket_id: int,
     payload: TicketUpdate,
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
     _key: str = Depends(require_write_auth),
 ):
     t = get_ticket_or_404(db, ticket_id)
     data = payload.model_dump(exclude_unset=True)
+    # JWT callers must belong to the ticket's project; moving the ticket
+    # to another project additionally requires membership there.
+    account = _jwt_account_or_none(authorization, db)
+    if account is not None:
+        if not _is_member(db, account, t.project_id):
+            raise HTTPException(status_code=404, detail="ticket not found")
+        if (
+            "project_id" in data
+            and data["project_id"] != t.project_id
+            and not _is_member(db, account, data["project_id"])
+        ):
+            raise HTTPException(status_code=404, detail="project not found")
     if "status" in data and data["status"] not in STATUSES:
         raise HTTPException(status_code=422, detail=f"invalid status: {data['status']}")
     if "priority" in data and data["priority"] not in PRIORITIES:
@@ -760,9 +1151,13 @@ def update_ticket(
 def delete_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
     _key: str = Depends(require_write_auth),
 ):
     t = get_ticket_or_404(db, ticket_id)
+    account = _jwt_account_or_none(authorization, db)
+    if account is not None and not _is_member(db, account, t.project_id):
+        raise HTTPException(status_code=404, detail="ticket not found")
     db.query(Comment).filter(Comment.ticket_id == ticket_id).delete()
     db.delete(t)
     db.commit()
@@ -772,6 +1167,10 @@ def delete_ticket(
 @app.post("/api/uploads", response_model=UploadOut, status_code=201)
 async def upload_image(
     file: UploadFile = File(...),
+    ticket_id: int | None = Form(default=None),
+    project_id: str | None = Form(default=None),
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
     _auth: dict = Depends(require_write_auth),
 ):
     """Upload one image (jpeg/png/gif/webp, at most 10 MB).
@@ -780,7 +1179,22 @@ async def upload_image(
     persistent volume) with a uuid filename, and served back at the
     returned ``/uploads/<name>`` path. Non-image content types and
     oversized files are rejected with 400.
+
+    The drawer passes ``ticket_id`` and the new-ticket dialog passes
+    ``project_id``; a JWT caller must be a member of that project
+    (404 otherwise). Without either, a JWT caller may still upload —
+    the image only becomes visible when pasted into a ticket the
+    caller can edit.
     """
+    account = _jwt_account_or_none(authorization, db)
+    if account is not None:
+        if ticket_id is not None:
+            ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+            if ticket is None or not _is_member(db, account, ticket.project_id):
+                raise HTTPException(status_code=404, detail="ticket not found")
+        elif project_id:
+            if not _is_member(db, account, project_id):
+                raise HTTPException(status_code=404, detail="project not found")
     ext = ALLOWED_IMAGE_TYPES.get((file.content_type or "").lower())
     if ext is None:
         raise HTTPException(
@@ -804,8 +1218,14 @@ async def upload_image(
 
 
 @app.get("/api/tickets/{ticket_id}/comments", response_model=list[CommentOut])
-def list_comments(ticket_id: int, db: Session = Depends(get_db)):
-    get_ticket_or_404(db, ticket_id)
+def list_comments(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    ticket = get_ticket_or_404(db, ticket_id)
+    _require_ticket_access(db, _auth_context(authorization, x_api_key, db), ticket)
     comments = (
         db.query(Comment)
         .filter(Comment.ticket_id == ticket_id)
@@ -837,6 +1257,7 @@ def create_comment(
     body = (payload.body or "").strip()
     if not body:
         raise HTTPException(status_code=422, detail="body is required")
+    # JWT callers must belong to the ticket's project.
     # Comment authorship rule:
     # - Called with a Bearer JWT (the browser UI): the author is always
     #   the logged-in account — author_id "account:<id>", author_name the
@@ -846,6 +1267,8 @@ def create_comment(
     #   is honoured as before (defaults to "u-noah").
     account = _jwt_account_or_none(authorization, db)
     if account is not None:
+        if not _is_member(db, account, ticket.project_id):
+            raise HTTPException(status_code=404, detail="ticket not found")
         author_id = f"account:{account.id}"
         author_name = account.name
     else:
@@ -880,8 +1303,14 @@ def create_comment(
 
 
 @app.get("/api/tickets/{ticket_id}/token-stats", response_model=TokenStatsOut)
-def token_stats(ticket_id: int, db: Session = Depends(get_db)):
-    get_ticket_or_404(db, ticket_id)
+def token_stats(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    ticket = get_ticket_or_404(db, ticket_id)
+    _require_ticket_access(db, _auth_context(authorization, x_api_key, db), ticket)
     # Same rising shape for every ticket, scaled deterministically by id.
     # Ticket 1 reproduces the reference curve exactly (total 12,100,000).
     factor = 1.0 + (ticket_id - 1) * 0.05
@@ -907,18 +1336,49 @@ def token_stats(ticket_id: int, db: Session = Depends(get_db)):
 NOTIF_TYPES = ["ticket", "mention", "system"]
 
 
+def _visible_notifications_query(
+    db: Session, auth: tuple[str, Account | None]
+):
+    """Notifications a caller may see.
+
+    API-Key and anonymous callers see everything. A JWT caller sees
+    system notifications (no ticket) plus notifications whose ticket
+    sits in one of their member projects — nothing else.
+    """
+    query = db.query(Notification)
+    kind, account = auth
+    if kind == "jwt" and account is not None:
+        member_ids = _member_project_ids(db, account)
+        if member_ids:
+            query = query.filter(
+                (Notification.ticket_id.is_(None))
+                | (
+                    Notification.ticket_id.in_(
+                        db.query(Ticket.id).filter(
+                            Ticket.project_id.in_(member_ids)
+                        )
+                    )
+                )
+            )
+        else:
+            query = query.filter(Notification.ticket_id.is_(None))
+    return query
+
+
 @app.get("/api/notifications", response_model=list[NotificationOut])
 def list_notifications(
     db: Session = Depends(get_db),
     unread_only: bool = Query(default=False),
     type: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
 ):
     if type is not None and type not in NOTIF_TYPES:
         raise HTTPException(status_code=422, detail=f"invalid type: {type}")
-    query = db.query(Notification).order_by(
-        Notification.created_at.desc(), Notification.id.desc()
-    )
+    query = _visible_notifications_query(
+        db, _auth_context(authorization, x_api_key, db)
+    ).order_by(Notification.created_at.desc(), Notification.id.desc())
     if unread_only:
         query = query.filter(Notification.is_read.is_(False))
     if type:
@@ -927,19 +1387,33 @@ def list_notifications(
 
 
 @app.get("/api/notifications/unread-count", response_model=UnreadCountOut)
-def notifications_unread_count(db: Session = Depends(get_db)):
-    return UnreadCountOut(
-        unread=db.query(Notification).filter(Notification.is_read.is_(False)).count()
+def notifications_unread_count(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    count = (
+        _visible_notifications_query(db, _auth_context(authorization, x_api_key, db))
+        .filter(Notification.is_read.is_(False))
+        .count()
     )
+    return UnreadCountOut(unread=count)
 
 
 @app.post("/api/notifications/{notification_id}/read", response_model=NotificationOut)
 def mark_notification_read(
     notification_id: int,
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
     _auth=Depends(require_write_auth),
 ):
-    n = db.query(Notification).filter(Notification.id == notification_id).first()
+    # Out-of-scope notifications answer 404, like missing ones.
+    n = (
+        _visible_notifications_query(db, _auth_context(authorization, x_api_key, db))
+        .filter(Notification.id == notification_id)
+        .first()
+    )
     if n is None:
         raise HTTPException(status_code=404, detail="notification not found")
     n.is_read = True
@@ -951,10 +1425,13 @@ def mark_notification_read(
 @app.post("/api/notifications/read-all", response_model=MarkAllReadOut)
 def mark_all_notifications_read(
     db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
     _auth=Depends(require_write_auth),
 ):
+    # Only the caller's visible notifications are marked.
     marked = (
-        db.query(Notification)
+        _visible_notifications_query(db, _auth_context(authorization, x_api_key, db))
         .filter(Notification.is_read.is_(False))
         .update({"is_read": True})
     )

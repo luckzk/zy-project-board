@@ -9,6 +9,7 @@ import type { AuthUser } from '../types'
 const NAV: { id: string; label: string; icon: IconName; count?: number }[] = [
   { id: 'home', label: '主页', icon: 'home', count: 152 },
   { id: 'board', label: '项目看板', icon: 'board' },
+  { id: 'projects', label: '项目', icon: 'folder' },
   { id: 'marketing', label: '营销', icon: 'megaphone' },
   { id: 'calendar', label: '日历', icon: 'calendar' },
   { id: 'finance', label: '财务', icon: 'chart' },
@@ -51,7 +52,7 @@ export default function Sidebar({
   onNavigate: (id: string) => void
   currentUser: AuthUser
   onLogout: () => void
-  activeView: 'board'
+  activeView: 'board' | 'projects'
 }) {
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -92,8 +93,8 @@ export default function Sidebar({
   }
 
   function handleNav(id: string) {
-    if (id === 'board') {
-      onNavigate('board')
+    if (id === 'board' || id === 'projects') {
+      onNavigate(id)
     } else {
       showNotice('该页面不在 v1 范围')
     }
@@ -235,7 +236,7 @@ export default function Sidebar({
       {/* Nav — 232x38 items, rounded ~10px */}
       <nav className={`flex w-full flex-1 flex-col gap-1 ${collapsed ? '' : 'px-0.5'}`}>
         {nav.map((item) => {
-          const active = item.id === 'board' && activeView === 'board'
+          const active = item.id === activeView
           return (
             <a
               key={item.id}

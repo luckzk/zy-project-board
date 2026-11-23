@@ -1,4 +1,5 @@
 import type {
+  AccountItem,
   AuthResponse,
   AuthUser,
   BoardColumn,
@@ -6,11 +7,12 @@ import type {
   CreateTicketInput,
   NotificationItem,
   NotificationType,
+  Project,
+  ProjectMember,
   Ticket,
   TokenStats,
   UpdateTicketInput,
   User,
-  Project,
 } from './types'
 
 // API base:
@@ -108,6 +110,38 @@ export const api = {
   // ---- board ----
   getUsers: () => request<User[]>('/api/users'),
   getProjects: () => request<Project[]>('/api/projects'),
+  // ---- projects & members (round 13) ----
+  getAccounts: () => request<AccountItem[]>('/api/accounts'),
+  createProject: (name: string) =>
+    request<Project>('/api/projects', {
+      method: 'POST',
+      headers: writeHeaders(),
+      body: JSON.stringify({ name }),
+    }),
+  renameProject: (id: string, name: string) =>
+    request<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: writeHeaders(),
+      body: JSON.stringify({ name }),
+    }),
+  deleteProject: (id: string) =>
+    request<void>(`/api/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: writeHeaders(),
+    }),
+  getProjectMembers: (id: string) =>
+    request<ProjectMember[]>(`/api/projects/${encodeURIComponent(id)}/members`),
+  addProjectMember: (id: string, account_id: number) =>
+    request<ProjectMember>(`/api/projects/${encodeURIComponent(id)}/members`, {
+      method: 'POST',
+      headers: writeHeaders(),
+      body: JSON.stringify({ account_id }),
+    }),
+  removeProjectMember: (id: string, account_id: number) =>
+    request<void>(`/api/projects/${encodeURIComponent(id)}/members/${account_id}`, {
+      method: 'DELETE',
+      headers: writeHeaders(),
+    }),
   getBoard: () => request<{ columns: BoardColumn[] }>('/api/board'),
   getTicket: (id: number) => request<Ticket>(`/api/tickets/${id}`),
   /** One ticket by public code (FE-87); 404 when unknown. Used by the
@@ -158,10 +192,18 @@ export const api = {
       method: 'POST',
       headers: writeHeaders(),
     }),
-  /** Upload one image; returns the public /uploads/<name> path. */
-  uploadImage: async (file: File): Promise<{ url: string }> => {
+  /** Upload one image; returns the public /uploads/<name> path.
+   * `context` scopes the upload to a ticket or project so the backend
+   * can enforce membership for JWT callers (404 when the caller is not
+   * a member). Omit it only when there is no ticket/project yet. */
+  uploadImage: async (
+    file: File,
+    context?: { ticket_id?: number; project_id?: string },
+  ): Promise<{ url: string }> => {
     const form = new FormData()
     form.append('file', file)
+    if (context?.ticket_id != null) form.append('ticket_id', String(context.ticket_id))
+    if (context?.project_id) form.append('project_id', context.project_id)
     const token = getToken()
     const res = await fetch(`${API_BASE}/api/uploads`, {
       method: 'POST',

@@ -30,6 +30,24 @@ export interface AuthResponse {
 export interface Project {
   id: string
   name: string
+  /** Populated by GET /api/projects; absent in older payloads. */
+  member_count?: number
+  ticket_count?: number
+}
+
+/** One member of a project (a login account, not a directory person). */
+export interface ProjectMember {
+  account_id: number
+  name: string
+  email: string
+  role: string
+}
+
+/** A login account, as listed for the member picker. */
+export interface AccountItem {
+  id: number
+  name: string
+  email: string
 }
 
 export interface Ticket {

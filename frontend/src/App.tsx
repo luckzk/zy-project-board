@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, getToken, setToken } from './api'
+import { api, ApiError, getToken, setToken } from './api'
 import {
   PRIORITY_LABELS,
   PRIORITY_ORDER,
@@ -14,6 +14,7 @@ import {
 } from './types'
 import Sidebar from './components/Sidebar'
 import Board from './components/Board'
+import ProjectPage from './components/ProjectPage'
 import TicketDrawer from './components/TicketDrawer'
 import NewTicketDialog from './components/NewTicketDialog'
 import AuthPage from './components/AuthPage'
@@ -272,9 +273,12 @@ export default function App() {
   // drawer. Parsed on startup, on hashchange, and right after login
   // (the hash survives the login page — the login gate never clears
   // it). Clicking a card never writes the hash, and closing the drawer
-  // never clears it, so a refresh re-opens the same ticket. Unknown
-  // codes are silently ignored: the board just loads.
+  // never clears it, so a refresh re-opens the same ticket. A code the
+  // caller cannot see (unknown, or in a project they are not a member
+  // of) answers 404 — the board shows "该票据不存在或无权访问"
+  // instead of opening the drawer, and never bounces to the login page.
   const deepLinkCodeRef = useRef<string | null>(null)
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null)
   const openTicketFromHash = useCallback(async () => {
     const m = window.location.hash.match(/^#ticket=([^&]+)/)
     if (!m) return
@@ -283,9 +287,14 @@ export default function App() {
     deepLinkCodeRef.current = code
     try {
       const t = await api.getTicketByCode(code)
+      setDeepLinkError(null)
       setSelectedTicketId(t.id)
-    } catch {
-      // Unknown code: board only, no error surface.
+    } catch (e) {
+      // 404 = unknown code or not a member of its project: say so
+      // inline. Other failures (network, ...) stay silent.
+      if (e instanceof ApiError && e.status === 404) {
+        setDeepLinkError('该票据不存在或无权访问')
+      }
     }
   }, [])
 
@@ -295,6 +304,9 @@ export default function App() {
     window.addEventListener('hashchange', openTicketFromHash)
     return () => window.removeEventListener('hashchange', openTicketFromHash)
   }, [authUser, openTicketFromHash])
+
+  // Main view: the board, or the project management page (round 13).
+  const [activeView, setActiveView] = useState<'board' | 'projects'>('board')
 
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
   // The ticket as already known from the board list payload — passed to
@@ -347,8 +359,13 @@ export default function App() {
 
   const handleNavigate = useCallback((id: string) => {
     setMobileSidebar(false)
-    if (id === 'board') setSettingsOpen(false)
-    else if (id === 'settings') setSettingsOpen(true)
+    if (id === 'board') {
+      setActiveView('board')
+      setSettingsOpen(false)
+    } else if (id === 'projects') {
+      setActiveView('projects')
+      setSettingsOpen(false)
+    } else if (id === 'settings') setSettingsOpen(true)
     // Other nav items are not in v1 scope; the sidebar shows an inline
     // notice for those itself.
   }, [])
@@ -362,6 +379,18 @@ export default function App() {
     const data = await api.getBoard()
     setColumns(data.columns)
   }, [])
+
+  // Light refresh after project mutations (no full-page loading
+  // spinner): projects + board, used by the project page.
+  const refreshProjectsAndBoard = useCallback(async () => {
+    try {
+      const [p] = await Promise.all([api.getProjects(), refreshBoard()])
+      setProjects(p)
+    } catch {
+      // The project page surfaces its own error; the board keeps its
+      // last state.
+    }
+  }, [refreshBoard])
 
   // Drawer edits (PATCH / delete) report via onChanged: refresh now only
   // when no drawer is open, otherwise defer to the close (see the
@@ -515,7 +544,7 @@ export default function App() {
         onNavigate={handleNavigate}
         currentUser={authUser}
         onLogout={handleLogout}
-        activeView="board"
+        activeView={activeView}
       />
 
       {/* Mobile nav (original mobile-nav-module): the main content shifts
@@ -544,15 +573,28 @@ export default function App() {
                 <Icon name="menu" size={20} />
               </button>
               <div className="min-w-0">
-                <nav className="text-xs text-[#737373] dark:text-[#A3A3A3]">
-                  Board 团队 <span className="mx-1">›</span>
-                  <span className="text-[#737373] dark:text-[#A3A3A3]">梅尔特坎</span>
-                  <span className="mx-1">›</span>
-                  <span className="font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">项目看板</span>
-                </nav>
-                <h1 className="mt-1 text-2xl font-bold leading-tight text-[#0A0A0A] dark:text-[#F5F5F5]">
-                  BoardUI 设计任务
-                </h1>
+                {activeView === 'projects' ? (
+                  <>
+                    <nav className="text-xs text-[#737373] dark:text-[#A3A3A3]">
+                      Board 团队
+                    </nav>
+                    <h1 className="mt-1 text-2xl font-bold leading-tight text-[#0A0A0A] dark:text-[#F5F5F5]">
+                      项目
+                    </h1>
+                  </>
+                ) : (
+                  <>
+                    <nav className="text-xs text-[#737373] dark:text-[#A3A3A3]">
+                      Board 团队 <span className="mx-1">›</span>
+                      <span className="text-[#737373] dark:text-[#A3A3A3]">梅尔特坎</span>
+                      <span className="mx-1">›</span>
+                      <span className="font-medium text-[#0A0A0A] dark:text-[#F5F5F5]">项目看板</span>
+                    </nav>
+                    <h1 className="mt-1 text-2xl font-bold leading-tight text-[#0A0A0A] dark:text-[#F5F5F5]">
+                      BoardUI 设计任务
+                    </h1>
+                  </>
+                )}
               </div>
             </div>
             <div className="relative flex items-center gap-2">
@@ -573,10 +615,13 @@ export default function App() {
                     </span>
                   )}
                 </button>
-                {/* Original: the inbox button has no onClick — it does nothing. */}
-                <button className={iconBtn} aria-label="收件箱">
-                  <Icon name="inbox" size={20} />
-                </button>
+                {/* Board-only controls: hidden on the project page. */}
+                {activeView === 'board' && (
+                  <>
+                    {/* Original: the inbox button has no onClick — it does nothing. */}
+                    <button className={iconBtn} aria-label="收件箱">
+                      <Icon name="inbox" size={20} />
+                    </button>
                 <Tooltip label="排序">
                   <button
                     ref={sortBtnRef}
@@ -622,6 +667,8 @@ export default function App() {
                 >
                   + 新票
                 </button>
+                  </>
+                )}
               </div>
 
               {/* Header popovers (original popover-module): each anchored
@@ -738,12 +785,32 @@ export default function App() {
           </div>
         </header>
 
-        {/* Board */}
+        {/* Board / project management page */}
         <main
           className={`flex-1 overflow-hidden p-4 sm:p-5 ${
             wideFill ? 'w-full' : 'mx-auto w-full max-w-[1600px]'
           }`}
         >
+          {deepLinkError && (
+            <div className="mb-3 flex items-center justify-between rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+              <span>{deepLinkError}</span>
+              <button
+                onClick={() => setDeepLinkError(null)}
+                className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-red-100 dark:hover:bg-red-900"
+                aria-label="关闭提示"
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+          )}
+          {activeView === 'projects' ? (
+            <ProjectPage
+              projects={projects}
+              currentUser={authUser}
+              onChanged={refreshProjectsAndBoard}
+            />
+          ) : (
+            <>
           {moveError && (
                 <div className="mb-3 flex items-center justify-between rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
                   <span>{moveError}</span>
@@ -797,6 +864,8 @@ export default function App() {
                   onDragCancel={() => void refreshBoard()}
                 />
               )}
+            </>
+          )}
         </main>
       </div>
 

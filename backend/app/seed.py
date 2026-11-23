@@ -187,6 +187,19 @@ SEED_COMMENTS = [
 ]
 
 
+def seed_projects(db: Session) -> None:
+    """Insert the 3 known projects into the projects table when it is
+    empty. Runs on every startup (no-op afterwards), so DBs created
+    before the projects table existed get the same rows."""
+    from app.models import Project
+
+    if db.query(Project).count() > 0:
+        return
+    for p in PROJECTS:
+        db.add(Project(id=p["id"], name=p["name"], created_at=datetime.utcnow()))
+    db.commit()
+
+
 def seed_directory_users(db: Session) -> None:
     """Insert the 10 seed people into directory_users when the table is empty.
 

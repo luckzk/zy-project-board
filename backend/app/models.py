@@ -4,6 +4,36 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from app.database import Base
 
 
+class Project(Base):
+    """A project (kanban board scope). Seeded from seed.PROJECTS on
+    first start; created/renamed/deleted via the API afterwards.
+    Tickets reference projects by this id string."""
+
+    __tablename__ = "projects"
+
+    id = Column(String(64), primary_key=True)
+    name = Column(String(128), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+
+
+class ProjectMember(Base):
+    """Membership of a login account in a project (round 13).
+
+    Only members can see a project's tickets and comment on them;
+    role is ``member`` for now (a single value, kept for later
+    roles such as admin). (project_id, account_id) is unique.
+    """
+
+    __tablename__ = "project_members"
+    __table_args__ = (UniqueConstraint("project_id", "account_id"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(String(64), ForeignKey("projects.id"), nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    role = Column(String(32), nullable=False, default="member")
+    created_at = Column(DateTime, nullable=False)
+
+
 class Ticket(Base):
     __tablename__ = "tickets"
 

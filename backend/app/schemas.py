@@ -115,6 +115,38 @@ class UserSyncOut(BaseModel):
 class ProjectOut(BaseModel):
     id: str
     name: str
+    # Populated by the list endpoint; 0 when the caller cannot see
+    # the members (never the case for the list itself).
+    member_count: int = 0
+    ticket_count: int = 0
+
+
+class ProjectCreate(BaseModel):
+    name: str
+
+
+class ProjectUpdate(BaseModel):
+    name: str
+
+
+class ProjectMemberOut(BaseModel):
+    account_id: int
+    name: str
+    email: str
+    role: str = "member"
+
+
+class MemberAddIn(BaseModel):
+    account_id: int
+
+
+class AccountOut(BaseModel):
+    """A login account, as listed for the member picker: only the
+    three fields the UI needs, no password hash, no timestamps."""
+
+    id: int
+    name: str
+    email: str
 
 
 class TicketBase(BaseModel):

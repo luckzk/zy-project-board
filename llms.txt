@@ -32,7 +32,8 @@
 - 注册/登录：`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`、`PATCH /api/auth/me`、`POST /api/auth/change-password`；演示账号 `demo@zy-board.local` / `demo1234`。
 - 人员目录：`GET /api/users?source=&active=`；通用同步接口见 `docs/user-sync.md`，MCP 工具为 `sync_users`。
 - 消息通知：`GET /api/notifications?unread_only=&type=&limit=`（最新在前）、`GET /api/notifications/unread-count`、`POST /api/notifications/{id}/read`、`POST /api/notifications/read-all`；通知由建票/改状态/评论/指派/用户同步自动生成，首次启动时从真实票据与评论回填。
-- 深链：票据链接是 `/#ticket=<code>`（如 `/#ticket=FE-87`），登录后打开自动开抽屉；`GET /api/tickets/by-code/{code}` 按 code 查单票（404 当 code 不存在）。票据有 `created_by`（创建账号显示名，存量票为 null、抽屉不显示）和 `is_favorite`（抽屉星标，PATCH 可改）。
+- 深链：票据链接是 `/#ticket=<code>`（如 `/#ticket=FE-87`），登录后打开自动开抽屉；`GET /api/tickets/by-code/{code}` 按 code 查单票（404 当 code 不存在或不在登录账号的成员项目内，此时看板顶部显示“该票据不存在或无权访问”）。票据有 `created_by`（创建账号显示名，存量票为 null、抽屉不显示）和 `is_favorite`（抽屉星标，PATCH 可改）。
+- 项目与权限：项目存在数据库 `projects` 表（3 个种子项目），成员在 `project_members` 表；`GET /api/projects` 返回带 `member_count` / `ticket_count` 的项目，JWT 调用者只看到自己是成员的项目；`POST /api/projects`（创建者自动成为成员）、`PATCH /api/projects/{id}`（改名，仅成员）、`DELETE /api/projects/{id}`（有票时 400 拒绝）；成员接口 `GET/POST/DELETE /api/projects/{id}/members`（任何成员可添加，最后一名成员不可移除）；`GET /api/accounts` 返回账号 id/name/email（供添加成员的选择器用）。JWT 调用者看板、票据、评论、token-stats、通知一律只含成员项目的数据，非成员一律 404；X-API-Key 调用绕过成员检查（MCP 能力不变）。侧边栏“项目”进项目管理页（新建/改名/成员管理/删除）。
 
 ## 规则（必须遵守）
 

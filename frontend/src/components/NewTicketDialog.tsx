@@ -100,9 +100,12 @@ export default function NewTicketDialog({
   const prefixRef = useRef<HTMLButtonElement>(null)
 
   // Image paste / drag-drop / file-picker upload for the description
-  // (shared hook — see lib/useImagePaste).
+  // (shared hook — see lib/useImagePaste). Uploads carry the selected
+  // project so the backend can enforce membership for JWT callers.
   const descRef = useRef<HTMLTextAreaElement | null>(null)
-  const descPaste = useImagePaste(descRef, description, setDescription)
+  const descPaste = useImagePaste(descRef, description, setDescription, () =>
+    projectId ? { project_id: projectId } : undefined,
+  )
 
   useEffect(() => {
     if (open && projects.length > 0 && !projectId) setProjectId(projects[0].id)

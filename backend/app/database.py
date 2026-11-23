@@ -4,6 +4,7 @@ SQLite file lives at backend/data/board.db (created on startup).
 """
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -76,6 +77,41 @@ def backfill_notifications(db) -> int:
             )
         )
         count += 1
+    if count:
+        db.commit()
+    return count
+
+
+def backfill_project_members(db) -> int:
+    """Make every existing account a member of every existing project.
+
+    Round-13 migration: permissions start open for everyone who
+    already has an account, so nobody is locked out by the upgrade.
+    Idempotent — only missing (project_id, account_id) pairs are
+    inserted, so it is safe to run on every startup. Accounts
+    registered *after* this runs start with no memberships and must
+    be added to a project by a member.
+    """
+    from app.models import Account, Project, ProjectMember
+
+    accounts = db.query(Account).all()
+    projects = db.query(Project).all()
+    existing = {
+        (m.project_id, m.account_id) for m in db.query(ProjectMember).all()
+    }
+    count = 0
+    for p in projects:
+        for a in accounts:
+            if (p.id, a.id) not in existing:
+                db.add(
+                    ProjectMember(
+                        project_id=p.id,
+                        account_id=a.id,
+                        role="member",
+                        created_at=datetime.utcnow(),
+                    )
+                )
+                count += 1
     if count:
         db.commit()
     return count
