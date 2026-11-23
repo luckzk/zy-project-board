@@ -576,12 +576,11 @@ export default function TicketDrawer({
 
   return (
     <div className="fixed inset-0 z-50">
-      {/* Light veil (fade ~200ms): the board behind fades but its columns
-          stay visible — not a dark blackout. Click / Esc / × closes. */}
-      <div
-        className={`absolute inset-0 bg-white/65 dark:bg-black/45 ${closing ? 'anim-fade-out' : 'anim-fade-in'}`}
-        onClick={handleClose}
-      />
+      {/* No dimming veil: the original keeps the board at full brightness
+          while the drawer is open, so this layer is fully transparent —
+          it only catches clicks outside the panel to close. No background
+          colour and no fade: no colour change, no flash. */}
+      <div className="absolute inset-0" onClick={handleClose} />
       {/* Genie root: the positioned panel slot (original Modal: h-full
           w-full max-w-[609px] inside a p-3 overlay, rounded-3xl). Inside
           it the shadow, the live surface and the warp bands — the bands
