@@ -150,17 +150,12 @@ body {
 ::view-transition-new(root) {
   animation: none;
   z-index: 2;
-  /* Circular reveal mask: a soft-edged circle (2px feather, same as
-   * the original's SVG blur 2 / r=42 mask). A plain CSS radial
-   * gradient instead of the original's SVG data-URI with an
-   * feGaussianBlur filter: the mask no longer needs a filter raster
-   * every frame of the reveal, and the feather stays ~2px at any
-   * mask size (closest-side keeps the radius at half the mask box).
-   * Size/position are animated from the click point (see App.tsx). */
-  mask-image: radial-gradient(circle closest-side, black calc(100% - 2px), transparent 100%);
-  -webkit-mask-image: radial-gradient(circle closest-side, black calc(100% - 2px), transparent 100%);
-  mask-repeat: no-repeat;
-  -webkit-mask-repeat: no-repeat;
+  /* Circular reveal: clip-path on the snapshot layer is a compositor
+   * operation (no per-frame re-raster of a mask), driven from App.tsx
+   * by WAAPI. Radius is exactly the click point's distance to the
+   * farthest corner (×1.05), so the circle edge keeps moving for the
+   * whole 550ms instead of covering the viewport in the first ~60ms
+   * (the old 2.5× mask-size overshoot). */
 }
 .theme-transitioning, .theme-transitioning * { transition: none !important; }
 
@@ -222,6 +217,18 @@ body {
 .shadow-sidebar { box-shadow: 0 1px 0 0 rgba(0, 0, 0, .02), 0 1px 12px 0 rgba(0, 0, 0, .06), 0 0 1px 0 rgba(0, 0, 0, .32); }
 .dark .shadow-sidebar { box-shadow: 0 1px 0 0 rgba(0, 0, 0, .02), 0 1px 12px 0 rgba(0, 0, 0, .06), 0 0 1px 0 rgba(255, 255, 255, .12); }
 .shadow-nav-selected { box-shadow: 0 0 0 1px #ac4bff, inset 0 1px 0 0 rgba(255, 255, 255, .25); }
+
+/* ---- Round 14: new-project highlight (project page) ---- */
+@keyframes row-flash {
+  0% { background-color: #DBEAFE; box-shadow: 0 0 0 1px #93C5FD; }
+  100% { background-color: transparent; box-shadow: 0 0 0 1px transparent; }
+}
+.flash-new { animation: row-flash 1.6s ease-out both; }
+@keyframes detail-flash {
+  0% { background-color: rgba(36, 118, 255, 0.07); }
+  100% { background-color: transparent; }
+}
+.detail-flash { animation: detail-flash 1.6s ease-out both; }
 
 @media (prefers-reduced-motion: reduce) {
   .anim-pop-in, .anim-pop-out, .anim-dialog-in, .anim-dialog-out,

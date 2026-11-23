@@ -1,9 +1,15 @@
 import type { RefObject } from 'react'
 import Icon from './Icon'
 
-/** Hint + status row under a textarea that supports image upload:
- * one line of guidance, an upload button, "上传中…" while uploading,
- * and the error text when an upload fails (typed text is never lost). */
+/** A single image icon button for image upload (round 14): no hint
+ * text, no text label. Clicking opens the hidden file picker;
+ * paste / drag-drop are handled by the useImagePaste hook and are
+ * unaffected. While uploading the icon spins greyed-out and the
+ * button is disabled; failures keep the error text below.
+ * `overlay` places the button at the bottom-left inside a relative
+ * textarea box (comment box: the round send button sits at the
+ * bottom-right); in that mode the error line is rendered by the
+ * caller below the box, so it never stretches the box. */
 export default function ImageUploadBar({
   uploading,
   error,
@@ -11,6 +17,7 @@ export default function ImageUploadBar({
   accept,
   onFileInputChange,
   onPick,
+  overlay = false,
 }: {
   uploading: boolean
   error: string
@@ -18,30 +25,41 @@ export default function ImageUploadBar({
   accept: string
   onFileInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   onPick: () => void
+  overlay?: boolean
 }) {
+  const button = (
+    <button
+      type="button"
+      onClick={onPick}
+      disabled={uploading}
+      aria-label="上传图片"
+      title="上传图片"
+      className="flex size-7 items-center justify-center rounded-lg text-[#737373] hover:bg-[#ECECEC] hover:text-[#0A0A0A] disabled:opacity-40 dark:text-[#A3A3A3] dark:hover:bg-[#2E2E2E] dark:hover:text-[#F5F5F5]"
+    >
+      {uploading ? (
+        <span
+          aria-hidden
+          className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+        />
+      ) : (
+        <Icon name="image" size={16} />
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={accept}
+        multiple
+        className="hidden"
+        onChange={onFileInputChange}
+      />
+    </button>
+  )
+  if (overlay) {
+    return <div className="absolute bottom-2 start-2 z-10">{button}</div>
+  }
   return (
     <div className="mt-1.5">
-      <div className="flex items-center gap-2 text-xs text-[#737373] dark:text-[#A3A3A3]">
-        <span>支持粘贴 / 拖入图片，单张 ≤10MB</span>
-        <button
-          type="button"
-          onClick={onPick}
-          disabled={uploading}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#E5E5E5] bg-white px-2 py-0.5 font-medium text-[#262626] hover:bg-[#F7F7F7] disabled:opacity-50 dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
-        >
-          <Icon name="image" size={13} />
-          上传图片
-        </button>
-        {uploading && <span className="text-[#2476FF]">上传中…</span>}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={accept}
-          multiple
-          className="hidden"
-          onChange={onFileInputChange}
-        />
-      </div>
+      {button}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   )

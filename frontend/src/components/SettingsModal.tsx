@@ -93,7 +93,7 @@ function Row({
   control,
 }: {
   label: string
-  desc?: string
+  desc?: ReactNode
   control: ReactNode
 }) {
   return (
@@ -220,8 +220,8 @@ export default function SettingsModal({
   onUserChanged: (user: AuthUser) => void
   dark: boolean
   onToggleDark: (origin?: { x: number; y: number }) => void
-  ticketCount: number
-  userCount: number
+  ticketCount: number | null
+  userCount: number | null
   onLogout: () => void
   onClose: () => void
 }) {
@@ -488,7 +488,13 @@ export default function SettingsModal({
                   <div className="divide-y divide-[#EBEBEB] dark:divide-[#2E2E2E]">
                     <Row
                       label="使用量"
-                      desc={`${ticketCount} 张票据 · ${userCount} 位用户`}
+                      desc={
+                        ticketCount == null || userCount == null ? (
+                          <span className="mt-0.5 block h-3.5 w-36 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                        ) : (
+                          `${ticketCount} 张票据 · ${userCount} 位用户`
+                        )
+                      }
                       control={
                         <button className={btnWhite} onClick={handleClose}>
                           管理
@@ -942,7 +948,11 @@ export default function SettingsModal({
                       v1 不包含文件存储：看板只保存票据、评论与用户数据，不上传文件。
                     </p>
                     <p className="mt-3 text-xs text-[#737373] dark:text-[#A3A3A3]">
-                      当前共 {ticketCount} 张票据 · {userCount} 位用户
+                      {ticketCount == null || userCount == null ? (
+                        <span className="mx-auto block h-3 w-44 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                      ) : (
+                        `当前共 ${ticketCount} 张票据 · ${userCount} 位用户`
+                      )}
                     </p>
                   </div>
                 </Card>

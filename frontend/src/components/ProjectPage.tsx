@@ -42,8 +42,21 @@ export default function ProjectPage({
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [membersLoading, setMembersLoading] = useState(false)
   const [accounts, setAccounts] = useState<AccountItem[]>([])
+  const [accountsLoading, setAccountsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [noticeKind, setNoticeKind] = useState<'success' | 'info'>('info')
+  // The project created most recently: its list row flashes once and
+  // the detail panel highlights once, so the creation is visible.
+  const [justCreatedId, setJustCreatedId] = useState<string | null>(null)
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>())
+  const inputRef = useRef<HTMLInputElement>(null)
+  // Guard for the create race: setSelectedId(created.id) may land in a
+  // render before the parent's project list has the new id, and the
+  // sync effect below would snap the selection back to the first
+  // project. While this ref holds the pending id, the effect skips
+  // the reset once.
+  const pendingSelectRef = useRef<string | null>(null)
 
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -63,13 +76,35 @@ export default function ProjectPage({
   // The parent's project list is the source of truth: when it changes
   // (e.g. the current user was removed from the selected project, or
   // a project was deleted), fall back to the first remaining project.
+  // Exception: a project id that handleCreate just asked to select —
+  // the parent's list may not include it in the very next render.
   useEffect(() => {
+    if (selectedId != null && pendingSelectRef.current === selectedId) {
+      pendingSelectRef.current = null
+      return
+    }
     if (selectedId != null && !projects.some((p) => p.id === selectedId)) {
       setSelectedId(projects[0]?.id ?? null)
     } else if (selectedId == null && projects.length > 0) {
       setSelectedId(projects[0].id)
     }
   }, [projects, selectedId])
+
+  // Success notices dismiss themselves after 5s; the close button
+  // stays for manual dismissal.
+  useEffect(() => {
+    if (!notice) return
+    const t = window.setTimeout(() => setNotice(null), 5000)
+    return () => window.clearTimeout(t)
+  }, [notice])
+
+  // Scroll the freshly created row into view and clear the highlight.
+  useEffect(() => {
+    if (!justCreatedId) return
+    rowRefs.current.get(justCreatedId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    const t = window.setTimeout(() => setJustCreatedId(null), 2000)
+    return () => window.clearTimeout(t)
+  }, [justCreatedId])
 
   const loadMembers = useCallback(async (projectId: string) => {
     setMembersLoading(true)
@@ -92,9 +127,15 @@ export default function ProjectPage({
   }, [selectedId, loadMembers])
 
   // Accounts for the add-member picker (loaded once; the list of
-  // login accounts rarely changes mid-session).
+  // login accounts rarely changes mid-session). While loading, the
+  // add button shows a loading state instead of claiming "all
+  // accounts are already members" (addable is empty until load).
   useEffect(() => {
-    api.getAccounts().then(setAccounts).catch(() => setAccounts([]))
+    api
+      .getAccounts()
+      .then(setAccounts)
+      .catch(() => setAccounts([]))
+      .finally(() => setAccountsLoading(false))
   }, [])
 
   const refreshAfter = useCallback(
@@ -120,9 +161,15 @@ export default function ProjectPage({
       // BEFORE selecting it: the selection-sync effect below resets a
       // selected id that is missing from the (still stale) prop list,
       // so selecting first would snap back to the first project.
+      // pendingSelectRef covers the case where the selection still
+      // lands a render early.
+      pendingSelectRef.current = created.id
       await onChanged()
       setSelectedId(created.id)
+      setJustCreatedId(created.id)
+      setNoticeKind('success')
       setNotice(`已创建项目“${created.name}”，你已是成员`)
+      inputRef.current?.focus()
     } catch (e) {
       setError(e instanceof Error ? e.message : '创建失败')
     } finally {
@@ -142,6 +189,7 @@ export default function ProjectPage({
     try {
       await api.renameProject(selected.id, name)
       setRenaming(false)
+      setNoticeKind('success')
       setNotice('项目名称已更新')
       onChanged()
     } catch (e) {
@@ -156,6 +204,7 @@ export default function ProjectPage({
     setError(null)
     try {
       await api.addProjectMember(selected.id, accountId)
+      setNoticeKind('success')
       setNotice('成员已添加')
       refreshAfter(selected.id)
     } catch (e) {
@@ -168,6 +217,7 @@ export default function ProjectPage({
     setError(null)
     try {
       await api.removeProjectMember(selected.id, accountId)
+      setNoticeKind('success')
       setNotice('成员已移除')
       refreshAfter(selected.id)
     } catch (e) {
@@ -183,6 +233,7 @@ export default function ProjectPage({
     try {
       await api.deleteProject(selected.id)
       setConfirmDelete(false)
+      setNoticeKind('success')
       setNotice(`已删除项目“${selected.name}”`)
       onChanged()
     } catch (e) {
@@ -226,6 +277,7 @@ export default function ProjectPage({
         </p>
         <div className="mt-3 flex gap-2">
           <input
+            ref={inputRef}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
@@ -235,8 +287,8 @@ export default function ProjectPage({
             aria-label="新项目名称"
             className={inputCls}
           />
-          <button onClick={() => void handleCreate()} disabled={creating} className={btnPrimary}>
-            新建
+          <button onClick={() => void handleCreate()} disabled={creating} className={`${btnPrimary} shrink-0 whitespace-nowrap`}>
+            {creating ? '新建中…' : '新建'}
           </button>
         </div>
         <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
@@ -247,11 +299,16 @@ export default function ProjectPage({
           ) : (
             projects.map((p) => {
               const active = p.id === selectedId
+              const isNew = p.id === justCreatedId
               return (
                 <button
                   key={p.id}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(p.id, el)
+                    else rowRefs.current.delete(p.id)
+                  }}
                   onClick={() => setSelectedId(p.id)}
-                  className={`rounded-[10px] px-3 py-2.5 text-left ${
+                  className={`rounded-[10px] px-3 py-2.5 text-left ${isNew ? 'flash-new' : ''} ${
                     active
                       ? 'bg-[#F7F7F7] dark:bg-[#262626]'
                       : 'hover:bg-[#F7F7F7] dark:hover:bg-[#262626]'
@@ -271,7 +328,7 @@ export default function ProjectPage({
       </section>
 
       {/* Detail */}
-      <section className={`${card} min-w-0 flex-1 p-5`}>
+      <section className={`${card} min-w-0 flex-1 p-5 ${selected?.id === justCreatedId ? 'detail-flash' : ''}`}>
         {selected == null ? (
           <div className="flex h-full items-center justify-center text-sm text-[#737373] dark:text-[#A3A3A3]">
             {projects.length === 0 ? '还没有项目，请先在左侧新建一个。' : '请选择一个项目查看详情。'}
@@ -327,11 +384,22 @@ export default function ProjectPage({
               </div>
             )}
             {notice && (
-              <div className="rounded-lg bg-[#F7F7F7] px-3 py-2 text-sm text-[#262626] dark:bg-[#262626] dark:text-[#E5E5E5]">
-                {notice}
+              <div
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  noticeKind === 'success'
+                    ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-300'
+                    : 'border-[#E7EAEC] bg-[#F7F7F7] text-[#262626] dark:border-[#262626] dark:bg-[#262626] dark:text-[#E5E5E5]'
+                }`}
+              >
+                {noticeKind === 'success' && (
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-600 text-white dark:bg-green-500">
+                    <Icon name="check" size={12} />
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">{notice}</span>
                 <button
                   onClick={() => setNotice(null)}
-                  className="ml-2 text-xs text-[#737373] underline dark:text-[#A3A3A3]"
+                  className="shrink-0 text-xs underline opacity-70 hover:opacity-100"
                 >
                   关闭
                 </button>
@@ -347,11 +415,17 @@ export default function ProjectPage({
                 <button
                   ref={addBtnRef}
                   onClick={() => setAddMenuOpen((v) => !v)}
-                  disabled={addable.length === 0}
-                  title={addable.length === 0 ? '全部账号已是成员' : undefined}
+                  disabled={accountsLoading || addable.length === 0}
+                  title={
+                    accountsLoading
+                      ? '正在加载账号…'
+                      : addable.length === 0
+                        ? '全部账号已是成员'
+                        : undefined
+                  }
                   className={btnGhost}
                 >
-                  + 添加成员
+                  {accountsLoading ? '加载账号中…' : '+ 添加成员'}
                 </button>
               </div>
               <p className="mt-1 text-xs leading-relaxed text-[#737373] dark:text-[#A3A3A3]">
@@ -363,8 +437,9 @@ export default function ProjectPage({
                 anchorRef={addBtnRef}
                 width={280}
                 items={addItems}
+                loading={accountsLoading}
                 footer={
-                  addable.length === 0 ? (
+                  !accountsLoading && addable.length === 0 ? (
                     <div className="px-2 py-1.5 text-xs text-[#737373] dark:text-[#A3A3A3]">
                       全部账号已是成员
                     </div>
@@ -372,7 +447,18 @@ export default function ProjectPage({
                 }
               />
               {membersLoading ? (
-                <p className="py-4 text-sm text-[#737373] dark:text-[#A3A3A3]">正在加载成员…</p>
+                <ul className="mt-3 flex flex-col gap-1" aria-hidden>
+                  {[0, 1, 2].map((i) => (
+                    <li key={i} className="flex items-center gap-3 px-2 py-2">
+                      <span className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-[#EFEFEF] dark:bg-[#262626]" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block h-4 w-32 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                        <span className="mt-1 block h-3 w-48 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                      </span>
+                      <span className="h-7 w-7 shrink-0 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+                    </li>
+                  ))}
+                </ul>
               ) : members.length === 0 ? (
                 <p className="py-4 text-sm text-[#737373] dark:text-[#A3A3A3]">
                   暂无成员。

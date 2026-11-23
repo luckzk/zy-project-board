@@ -1009,15 +1009,19 @@ export default function TicketDrawer({
                   >
                     <Icon name="arrowUp" size={14} />
                   </button>
+                  <ImageUploadBar
+                    overlay
+                    uploading={commentPaste.uploading}
+                    error={commentPaste.uploadError}
+                    fileInputRef={commentPaste.fileInputRef}
+                    accept={commentPaste.accept}
+                    onFileInputChange={commentPaste.onFileInputChange}
+                    onPick={commentPaste.openFilePicker}
+                  />
                 </div>
-                <ImageUploadBar
-                  uploading={commentPaste.uploading}
-                  error={commentPaste.uploadError}
-                  fileInputRef={commentPaste.fileInputRef}
-                  accept={commentPaste.accept}
-                  onFileInputChange={commentPaste.onFileInputChange}
-                  onPick={commentPaste.openFilePicker}
-                />
+                {commentPaste.uploadError && (
+                  <p className="mt-1 text-xs text-red-600">{commentPaste.uploadError}</p>
+                )}
               </section>
             </>
           ) : (

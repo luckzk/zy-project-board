@@ -69,12 +69,16 @@ export default function App() {
   const mobileOverlay = useMountTransition(mobileSidebar, 325)
   const themeRevealRef = useRef(false)
 
-  /** Theme toggle with the original's circular-mask reveal: 450ms
-   * cubic-bezier(0.16,1,0.3,1), mask (blur 2, circle r=42), radius
-   * 2.5x the distance to the farthest corner, expanding from the click
-   * point. (The original runs 820ms; at that length the whole page
-   * feels frozen because all transitions are disabled during the
-   * reveal — 450ms keeps the same effect without the stall.) Falls
+  /** Theme toggle with the original's circular reveal: 550ms
+   * cubic-bezier(0.16,1,0.3,1), expanding from the click point.
+   * The reveal is a clip-path circle on the new snapshot (a
+   * compositor operation — no per-frame re-raster, unlike the old
+   * mask-size animation), and its radius is exactly the distance
+   * from the click point to the farthest corner (×1.05 margin), so
+   * the circle edge keeps moving for the whole duration. (The old
+   * 2.5× mask-size overshoot covered the viewport at ~13% of the
+   * 450ms — about 60ms in — so the rest of the animation showed no
+   * visible change and the switch read as a single jump.) Falls
    * back to an instant switch without ViewTransition support or under
    * prefers-reduced-motion. */
   const toggleDark = useCallback(
@@ -97,16 +101,15 @@ export default function App() {
           const rect = root.getBoundingClientRect()
           const x = origin?.x ?? rect.width / 2
           const y = origin?.y ?? rect.height / 2
-          const r = Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y)) * 2.5
-          const pos = `${x - r}px ${y - r}px`
-          const size = `${2 * r}px ${2 * r}px`
+          const r =
+            Math.hypot(Math.max(x, rect.width - x), Math.max(y, rect.height - y)) * 1.05
           root.animate(
             [
-              { maskSize: '0px 0px', WebkitMaskSize: '0px 0px', maskPosition: pos, WebkitMaskPosition: pos },
-              { maskSize: size, WebkitMaskSize: size, maskPosition: pos, WebkitMaskPosition: pos },
+              { clipPath: `circle(0px at ${x}px ${y}px)` },
+              { clipPath: `circle(${r}px at ${x}px ${y}px)` },
             ],
             {
-              duration: 450,
+              duration: 550,
               easing: 'cubic-bezier(0.16,1,0.3,1)',
               fill: 'forwards',
               pseudoElement: '::view-transition-new(root)',
@@ -824,8 +827,25 @@ export default function App() {
                 </div>
               )}
               {loading ? (
-                <div className="flex h-full items-center justify-center text-sm text-[#737373] dark:text-[#A3A3A3]">
-                  正在加载看板…
+                <div className="flex h-full gap-2 overflow-hidden" aria-hidden>
+                  {[0, 1, 2, 3, 4].map((c) => (
+                    <div
+                      key={c}
+                      className="w-[273px] shrink-0 rounded-[20px] bg-[#F7F7F7] p-2 dark:bg-[#171717]"
+                    >
+                      <div className="mb-2 h-5 w-20 animate-pulse rounded bg-[#E5E5E5] dark:bg-[#262626]" />
+                      {[0, 1, 2].map((i) => (
+                        <div
+                          key={i}
+                          className="mb-2 rounded-xl border border-[#E7EAEC] bg-white p-3 dark:border-[#262626] dark:bg-[#202020]"
+                        >
+                          <div className="h-4 w-3/4 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                          <div className="mt-2 h-3 w-full animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                          <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               ) : error ? (
                 <div className="mx-auto mt-16 max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center dark:border-red-900 dark:bg-[#171717]">
@@ -892,8 +912,8 @@ export default function App() {
         onUserChanged={(u) => setAuthUser(u)}
         dark={dark}
         onToggleDark={toggleDark}
-        ticketCount={columns.reduce((n, c) => n + c.tickets.length, 0)}
-        userCount={users.length}
+        ticketCount={loading ? null : columns.reduce((n, c) => n + c.tickets.length, 0)}
+        userCount={loading ? null : users.length}
         onLogout={handleLogout}
         onClose={() => setSettingsOpen(false)}
       />

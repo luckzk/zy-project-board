@@ -37,9 +37,11 @@ interface MenuProps {
   items: MenuItemDef[]
   footer?: ReactNode
   zIndex?: number
+  /** Loading state: renders skeleton option rows instead of items. */
+  loading?: boolean
 }
 
-export function Menu({ open, onClose, anchorRef, width = 220, align = 'left', items, footer, zIndex = 120 }: MenuProps) {
+export function Menu({ open, onClose, anchorRef, width = 220, align = 'left', items, footer, zIndex = 120, loading = false }: MenuProps) {
   const [pos, setPos] = useState<{ top: number; left: number; flip: boolean } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -97,9 +99,22 @@ export function Menu({ open, onClose, anchorRef, width = 220, align = 'left', it
       className="anim-pop-in fixed rounded-[14px] border border-[#EBEBEB] bg-white p-1 shadow-[0_8px_30px_rgba(10,10,0,0.12)] dark:border-[#2E2E2E] dark:bg-[#1F1F1F] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)]"
       style={{ top: pos.top, left: pos.left, width, zIndex, maxHeight: 320, overflowY: 'auto' }}
     >
-      {(() => {
-        let lastGroup: string | undefined
-        return items.map((item) => {
+      {loading ? (
+        <div className="p-1" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+              <span className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-[#EFEFEF] dark:bg-[#262626]" />
+              <span className="min-w-0 flex-1">
+                <span className="block h-3.5 w-24 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+                <span className="mt-1 block h-3 w-32 animate-pulse rounded bg-[#EFEFEF] dark:bg-[#262626]" />
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        (() => {
+          let lastGroup: string | undefined
+          return items.map((item) => {
           const groupLabel = item.group !== undefined && item.group !== lastGroup ? item.group : null
           lastGroup = item.group
           return (
@@ -142,7 +157,8 @@ export function Menu({ open, onClose, anchorRef, width = 220, align = 'left', it
             </div>
           )
         })
-      })()}
+        })()
+      )}
       {footer}
     </div>,
     document.body,
