@@ -36,7 +36,10 @@ body {
 }
 
 /* ---- Entrance animations (measured from the original) ----
- * Drawer: slide in from the right edge, 300ms ease-out.
+ * Drawer: straight slide in from the right edge, 250ms ease-out.
+ *   Not a macOS genie morph: no scaling from the card, no curved path,
+ *   full height and constant width the whole way; closing slides back
+ *   out at the same speed.
  * Popovers: fade + scale 95%->100% + translateY, 200ms ease-out.
  * Dialog: fade + scale 95%->100% + slight upward move, 200ms.
  * Overlays: plain fade, 200ms.
@@ -76,8 +79,8 @@ body {
   to { opacity: 0; }
 }
 
-.anim-drawer-in { animation: drawer-in 300ms ease-out both; }
-.anim-drawer-out { animation: drawer-out 300ms ease-out both; }
+.anim-drawer-in { animation: drawer-in 250ms ease-out both; }
+.anim-drawer-out { animation: drawer-out 250ms ease-out both; }
 .anim-pop-in { animation: pop-in 200ms ease-out both; }
 .anim-pop-out { animation: pop-out 150ms ease-in both; }
 .anim-dialog-in { animation: dialog-in 200ms ease-out both; }

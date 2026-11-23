@@ -17,12 +17,18 @@ import Icon from './Icon'
 
 export default function TicketDrawer({
   ticketId,
+  initialTicket,
   users,
   projects,
   onClose,
   onChanged,
 }: {
   ticketId: number | null
+  /** The ticket as already known from the board list payload. The list
+   * payload carries title, status, priority, project, category and
+   * assignees, so the drawer can paint real content on its first frame
+   * instead of a blank white panel while the detail request is in flight. */
+  initialTicket: Ticket | null
   users: User[]
   projects: Project[]
   onClose: () => void
@@ -31,7 +37,10 @@ export default function TicketDrawer({
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [tokenStats, setTokenStats] = useState<TokenStats | null>(null)
-  const [loading, setLoading] = useState(false)
+  // Comments / token stats load in the background and merge in when they
+  // arrive; they never block the main content.
+  const [commentsLoading, setCommentsLoading] = useState(false)
+  const [tokenLoading, setTokenLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -50,7 +59,7 @@ export default function TicketDrawer({
   const [menuClosing, setMenuClosing] = useState(false)
   const [copied, setCopied] = useState('')
 
-  // Slide-in from the right edge (300ms ease-out): the drawer mounts first,
+  // Slide-in from the right edge (250ms ease-out): the drawer mounts first,
   // then animates in on the next frames; closing slides it back out and
   // only then tells the parent to clear the ticket id.
   const [mounted, setMounted] = useState(false)
@@ -71,10 +80,26 @@ export default function TicketDrawer({
     return undefined
   }, [ticketId])
 
+  // Seed the drawer from the board payload during render (React's
+  // "adjusting state during rendering" pattern): when the opened ticket
+  // changes, the very first committed frame already shows its title,
+  // status, priority, project, category and assignees — the slide-in
+  // carries real content, never a blank white panel. The detail fetch
+  // below only refreshes this seed and loads comments / token stats.
+  const [ticketForId, setTicketForId] = useState<number | null>(null)
+  if (ticketForId !== ticketId) {
+    setTicketForId(ticketId)
+    const seed = ticketId != null && initialTicket?.id === ticketId ? initialTicket : null
+    setTicket(seed)
+    setEditTitle(seed?.title ?? '')
+    setEditDesc(seed?.description ?? '')
+    setEditing(false)
+  }
+
   function handleClose() {
     if (closeTimer.current) window.clearTimeout(closeTimer.current)
     setVisible(false)
-    closeTimer.current = window.setTimeout(() => onClose(), 300)
+    closeTimer.current = window.setTimeout(() => onClose(), 250)
   }
 
   function closeMenu() {
@@ -124,6 +149,10 @@ export default function TicketDrawer({
     window.setTimeout(() => setCopied(''), 2000)
   }
 
+  // Detail fetch: refreshes the seeded ticket and loads comments /
+  // token stats in the background. Each request resolves independently
+  // and merges into the already-painted content — nothing here ever
+  // replaces the panel with a loading state.
   useEffect(() => {
     if (ticketId == null) {
       setTicket(null)
@@ -135,31 +164,49 @@ export default function TicketDrawer({
       return
     }
     let cancelled = false
-    setLoading(true)
     setError(null)
-    Promise.all([
-      api.getTicket(ticketId),
-      api.getComments(ticketId),
-      api.getTokenStats(ticketId),
-    ])
-      .then(([t, c, s]) => {
+    setCommentsLoading(true)
+    setTokenLoading(true)
+    api
+      .getTicket(ticketId)
+      .then((t) => {
         if (cancelled) return
         setTicket(t)
-        setComments(c)
-        setTokenStats(s)
         setEditTitle(t.title)
         setEditDesc(t.description)
-        setEditing(false)
       })
       .catch((e: Error) => {
-        if (!cancelled) setError(e.message)
+        // Only surface an error when there is no seed to show.
+        if (!cancelled && initialTicket?.id !== ticketId) setError(e.message)
+      })
+    api
+      .getComments(ticketId)
+      .then((c) => {
+        if (!cancelled) setComments(c)
+      })
+      .catch(() => {
+        // Comments stay empty; the rest of the drawer is unaffected.
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setCommentsLoading(false)
+      })
+    api
+      .getTokenStats(ticketId)
+      .then((s) => {
+        if (!cancelled) setTokenStats(s)
+      })
+      .catch(() => {
+        // Chart falls back to its empty state.
+      })
+      .finally(() => {
+        if (!cancelled) setTokenLoading(false)
       })
     return () => {
       cancelled = true
     }
+    // initialTicket is read only at open time (see the render-time seed
+    // above); refetching on every board refresh would flash the details.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId])
 
   useEffect(() => {
@@ -232,12 +279,18 @@ export default function TicketDrawer({
 
   return (
     <div className="fixed inset-0 z-50">
+      {/* Light veil (fade ~200ms): the board behind fades but its columns
+          stay visible — not a dark blackout. Click / Esc / × closes. */}
       <div
-        className={`absolute inset-0 bg-black/20 ${visible ? 'anim-fade-in' : 'anim-fade-out'}`}
+        className={`absolute inset-0 bg-white/65 dark:bg-black/45 ${visible ? 'anim-fade-in' : 'anim-fade-out'}`}
         onClick={handleClose}
       />
+      {/* Floating panel (measured from the original: x=1298..1906,
+          y=12..985 on 1919x998): inset ~12px top/right/bottom, ~18px
+          radius, soft shadow on the left edge. Straight slide-in/out,
+          constant width — no genie morph, no curved path. */}
       <aside
-        className={`absolute inset-y-0 right-0 flex w-full max-w-[620px] flex-col bg-white shadow-2xl dark:bg-[#171717] ${
+        className={`absolute bottom-3 right-3 top-3 flex w-full max-w-[620px] flex-col overflow-hidden rounded-[18px] border border-[#E7EAEC] bg-white shadow-[-16px_0_48px_-12px_rgba(0,0,0,0.18)] dark:border-[#2E2E2E] dark:bg-[#171717] dark:shadow-[-16px_0_48px_-12px_rgba(0,0,0,0.6)] ${
           visible ? 'anim-drawer-in' : 'anim-drawer-out'
         }`}
       >
@@ -356,13 +409,12 @@ export default function TicketDrawer({
         )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {loading && <div className="py-10 text-center text-sm text-[#737373]">加载中…</div>}
           {error && (
             <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
               {error}
             </div>
           )}
-          {ticket && (
+          {ticket ? (
             <div className="space-y-5">
               {/* Title */}
               {editing ? (
@@ -468,7 +520,14 @@ export default function TicketDrawer({
                 <span className="mb-2 block text-xs text-[#737373] dark:text-[#A3A3A3]">
                   Token 消耗 · {project?.name ?? ''}
                 </span>
-                <TokenChart stats={tokenStats} />
+                {tokenLoading && !tokenStats ? (
+                  <div
+                    className="h-[190px] animate-pulse rounded-xl bg-[#F7F7F7] dark:bg-[#202020]"
+                    aria-hidden
+                  />
+                ) : (
+                  <TokenChart stats={tokenStats} />
+                )}
               </div>
 
               {/* Assignees multi-select */}
@@ -594,8 +653,15 @@ export default function TicketDrawer({
                       </div>
                     )
                   })}
-                  {comments.length === 0 && (
-                    <p className="text-sm text-[#737373]">暂无评论，来写第一条吧。</p>
+                  {commentsLoading && comments.length === 0 ? (
+                    <div className="space-y-3" aria-hidden>
+                      <div className="h-9 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+                      <div className="h-9 w-2/3 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+                    </div>
+                  ) : (
+                    comments.length === 0 && (
+                      <p className="text-sm text-[#737373]">暂无评论，来写第一条吧。</p>
+                    )
                   )}
                 </div>
                 <div className="mt-3 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] p-3 dark:border-[#2E2E2E] dark:bg-[#202020]">
@@ -629,6 +695,21 @@ export default function TicketDrawer({
                 </div>
               </div>
 
+            </div>
+          ) : (
+            // Only reachable when the board payload had no ticket for this
+            // id: grey pulse blocks keep the panel from flashing blank
+            // white while the fetch resolves.
+            <div className="space-y-5" aria-hidden>
+              <div className="h-7 w-3/4 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+              <div className="h-4 w-1/2 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+                <div className="h-14 animate-pulse rounded-lg bg-[#EFEFEF] dark:bg-[#262626]" />
+              </div>
+              <div className="h-44 animate-pulse rounded-xl bg-[#EFEFEF] dark:bg-[#262626]" />
             </div>
           )}
         </div>

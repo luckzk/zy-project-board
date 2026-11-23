@@ -96,10 +96,11 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Quick search — white pill on the grey sidebar */}
+      {/* Quick search — grey #EBEBEB field on the grey sidebar (measured
+          from the original: 232x36, bg #EBEBEB, radius ~10px) */}
       {!collapsed && (
         <div className="px-3 pb-2 pt-2">
-          <div className="flex items-center gap-2 rounded-[12px] border border-[#E5E5E5] bg-white px-3 py-1.5 dark:border-[#2E2E2E] dark:bg-[#202020]">
+          <div className="flex items-center gap-2 rounded-[10px] bg-[#EBEBEB] px-3 py-1.5 dark:bg-[#202020]">
             <span className="text-[#737373] dark:text-[#A3A3A3]">
               <Icon name="search" size={16} />
             </span>
@@ -109,7 +110,7 @@ export default function Sidebar({
               placeholder="快速搜索"
               className="min-w-0 flex-1 bg-transparent text-sm text-[#0A0A0A] outline-none placeholder:text-[#737373] dark:text-[#F5F5F5]"
             />
-            <kbd className="rounded border border-[#E5E5E5] bg-[#F7F7F7] px-1 text-[10px] text-[#737373] dark:border-[#2E2E2E] dark:bg-[#262626] dark:text-[#A3A3A3]">
+            <kbd className="rounded border border-[#D9D9D9] bg-[#F7F7F7] px-1 text-[10px] text-[#737373] dark:border-[#2E2E2E] dark:bg-[#262626] dark:text-[#A3A3A3]">
               ⌘L
             </kbd>
           </div>
@@ -257,19 +258,21 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — floating card, not edge-to-edge: inset ~12px on
+          all sides, radius ~18px, 1px border + soft shadow (measured from
+          the original: x=13..271, y=13..984 on a 1919x998 viewport). */}
       <aside
-        className={`hidden shrink-0 border-r border-[#EBEBEB] transition-all duration-200 dark:border-[#262626] md:block ${
+        className={`m-3 hidden shrink-0 overflow-hidden rounded-[18px] border border-[#E7EAEC] bg-[#F7F7F7] shadow-[0_2px_16px_rgba(0,0,0,0.06)] transition-all duration-200 dark:border-[#262626] dark:bg-[#171717] dark:shadow-[0_2px_16px_rgba(0,0,0,0.35)] md:block ${
           collapsed ? 'w-[72px]' : 'w-[264px]'
         }`}
       >
         {body}
       </aside>
-      {/* Mobile overlay sidebar */}
+      {/* Mobile overlay sidebar — same floating card */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <div className="absolute inset-0 bg-black/20" onClick={onCloseMobile} />
-          <aside className="absolute inset-y-0 left-0 w-[264px] shadow-xl">{body}</aside>
+          <aside className="absolute inset-y-3 left-3 w-[264px] overflow-hidden rounded-[18px] border border-[#E7EAEC] bg-[#F7F7F7] shadow-xl dark:border-[#262626] dark:bg-[#171717]">{body}</aside>
         </div>
       )}
     </>

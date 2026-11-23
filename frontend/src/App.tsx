@@ -141,6 +141,16 @@ export default function App() {
   }, [popover, closePopover])
 
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
+  // The ticket as already known from the board list payload — passed to
+  // the drawer so it paints real content on its first frame (no blank
+  // flash while the detail request is in flight).
+  const selectedTicket = useMemo(
+    () =>
+      selectedTicketId == null
+        ? null
+        : (columns.flatMap((c) => c.tickets).find((t) => t.id === selectedTicketId) ?? null),
+    [columns, selectedTicketId],
+  )
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [newDialogStatus, setNewDialogStatus] = useState<TicketStatus | null>(null)
 
@@ -574,6 +584,7 @@ export default function App() {
 
       <TicketDrawer
         ticketId={selectedTicketId}
+        initialTicket={selectedTicket}
         users={activeUsers}
         projects={projects}
         onClose={() => setSelectedTicketId(null)}
