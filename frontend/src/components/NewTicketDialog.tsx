@@ -90,6 +90,9 @@ export default function NewTicketDialog({
   const [openMenu, setOpenMenu] = useState<string | null>(null)
 
   const titleRef = useRef<HTMLTextAreaElement>(null)
+  // Round 9: set when a ticket was created and the dialog is closing;
+  // handleExitDone fires onCreated() once the exit warp is done.
+  const createdRef = useRef(false)
   const statusRef = useRef<HTMLButtonElement>(null)
   const priorityRef = useRef<HTMLButtonElement>(null)
   const assigneeRef = useRef<HTMLButtonElement>(null)
@@ -150,6 +153,14 @@ export default function NewTicketDialog({
 
   function handleExitDone() {
     resetForm()
+    // Round 9: the board refresh used to fire before the exit started,
+    // so the refetch commit + the new card's enter animation landed in
+    // the middle of the 480ms exit warp. Now the refresh runs only after
+    // the dialog is gone.
+    if (createdRef.current) {
+      createdRef.current = false
+      onCreated()
+    }
     setMounted(false)
     setClosing(false)
     onClose()
@@ -187,13 +198,17 @@ export default function NewTicketDialog({
         assignee_ids: assigneeIds,
         prefix,
       })
-      onCreated()
       if (keepGoing) {
         // Original: only title/description are cleared, title refocused.
+        // The dialog stays open, so refresh the board right away.
+        onCreated()
         setTitle('')
         setDescription('')
         titleRef.current?.focus()
       } else {
+        // Round 9: close first; the board refresh is deferred to
+        // handleExitDone so it doesn't collide with the exit warp.
+        createdRef.current = true
         requestClose()
       }
     } catch (e) {

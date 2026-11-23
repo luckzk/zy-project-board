@@ -134,14 +134,15 @@ export function rewriteCloneIds(root: HTMLElement, prefix: string): void {
 
 
 /* ---- Round 6: create-ticket dialog genie (original create-ticket-modal-module) ----
- * Exact port of the original: the panel is wrapped in a genie div (shadow +
- * surface, transform-origin bottom). The surface carries an SVG warp filter:
- *   feFlood neutral grey + feImage (field data URI, 560x280, stretched to
- *   the panel size) + feComposite over + feDisplacementMap (scale driven
- *   0.98*width*rangeEase(0,.72,p)) + feGaussianBlur (2*rangeEase(.8,1,p)).
- * The field image is a neutral-grey rect plus a horizontal 33-stop sigmoid
- * gradient (tanh S-curve, R channel) masked by a vertical 33-stop r^3
- * gradient (bend mask, stronger at the bottom).
+ * Round 9 changed this: the original warps the panel with an SVG filter
+ * (feFlood + feImage field data URI 560x280 + feComposite +
+ * feDisplacementMap scale 0.98*width*rangeEase(0,.72,p) + feGaussianBlur
+ * 2*rangeEase(.8,1,p)). The probe counted 24 filter-param writes per
+ * open and 20-22 per close — ~12 full-panel re-rasters per 480ms run —
+ * which was the open/close stutter. The dialog now uses the same
+ * translateY/scaleY/opacity/shadow math with transform only, so the
+ * sliver-growth motion is unchanged and open/close run on the compositor.
+ * The field data URI builder was removed with the filter.
  * Progress p: 1 = closed (sliver), 0 = open. 0.48s easeInOut.
  * surface: translateY(g*rangeEase(0,.42,p)) scaleY(max(.001,(h+g*.42)*(1-rangeEase(.32,1,p))/h))
  *          opacity 1-rangeEase(.94,1,p)
@@ -189,26 +190,3 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): (t:
 }
 
 export const easeInOut = cubicBezier(0.42, 0, 0.58, 1)
-
-/** The exact field data URI from the original (560x280). */
-export function dialogFieldDataUri(): string {
-  const fieldStops = Array.from({ length: 33 }, (_, t) => {
-    const r = t / 32
-    const i = 127.5 * (1 + Math.tanh(((r - 0.5) * 16) / Math.tanh(8)))
-    return `<stop offset="${r}" stop-color="rgb(${i},128,128)"/>`
-  }).join('')
-  const curveStops = Array.from({ length: 33 }, (_, t) => {
-    const r = t / 32
-    return `<stop offset="${r}" stop-color="white" stop-opacity="${r ** 3}"/>`
-  }).join('')
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="560" height="280" viewBox="0 0 560 280">
-<defs>
-  <linearGradient id="field">${fieldStops}</linearGradient>
-  <linearGradient id="curve" x1="0" y1="0" x2="0" y2="1">${curveStops}</linearGradient>
-  <mask id="bend"><rect width="560" height="280" fill="url(#curve)"/></mask>
-</defs>
-<rect width="560" height="280" fill="rgb(128,128,128)"/>
-<rect width="560" height="280" fill="url(#field)" mask="url(#bend)"/>
-</svg>`
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`
-}

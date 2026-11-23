@@ -211,6 +211,12 @@ export default function App() {
   )
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [newDialogStatus, setNewDialogStatus] = useState<TicketStatus | null>(null)
+  // Round 9: the drawer calls onChanged() after every PATCH while it is
+  // open. Refreshing the board right then makes the full-board commit +
+  // card leave/enter animations collide with the drawer's close warp.
+  // Instead, mark the board dirty and refresh the moment the drawer
+  // closes. The drawer itself already shows the PATCH response locally.
+  const [boardDirty, setBoardDirty] = useState(false)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -258,6 +264,21 @@ export default function App() {
     const data = await api.getBoard()
     setColumns(data.columns)
   }, [])
+
+  // Drawer edits (PATCH / delete) report via onChanged: refresh now only
+  // when no drawer is open, otherwise defer to the close (see the
+  // boardDirty effect below).
+  const handleDrawerChanged = useCallback(() => {
+    if (selectedTicketId != null) setBoardDirty(true)
+    else void refreshBoard()
+  }, [selectedTicketId, refreshBoard])
+
+  useEffect(() => {
+    if (selectedTicketId == null && boardDirty) {
+      setBoardDirty(false)
+      void refreshBoard()
+    }
+  }, [selectedTicketId, boardDirty, refreshBoard])
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -689,7 +710,7 @@ export default function App() {
         projects={projects}
         currentUser={authUser}
         onClose={() => setSelectedTicketId(null)}
-        onChanged={() => void refreshBoard()}
+        onChanged={handleDrawerChanged}
       />
       <NewTicketDialog
         open={newDialogOpen}
