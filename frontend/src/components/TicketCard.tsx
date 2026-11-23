@@ -5,10 +5,10 @@ import { PRIORITY_LABELS, type Priority, type Project, type Ticket, type User } 
 import { AvatarStack } from './Avatar'
 
 const PRIORITY_BADGE: Record<Priority, string> = {
-  low: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
-  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
-  high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300',
-  urgent: 'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300',
+  low: 'bg-[#BEDBFF] text-[#193CB8] dark:bg-[#BEDBFF]/15 dark:text-[#9CC3FF]',
+  medium: 'bg-[#FFF085] text-[#894B00] dark:bg-[#FFF085]/15 dark:text-[#FFD666]',
+  high: 'bg-[#FFD6A7] text-[#B75729] dark:bg-[#FFD6A7]/15 dark:text-[#FFB877]',
+  urgent: 'bg-[#FFCCD3] text-[#A50036] dark:bg-[#FFCCD3]/15 dark:text-[#FF9EB0]',
 }
 
 export default function TicketCard({
@@ -43,15 +43,15 @@ export default function TicketCard({
       {...attributes}
       {...listeners}
       onClick={() => onClick(ticket)}
-      className={`cursor-grab touch-none rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-shadow hover:shadow-md active:cursor-grabbing dark:border-slate-700 dark:bg-slate-800 ${
+      className={`cursor-grab touch-none rounded-xl border border-[#E7EAEC] bg-white p-3.5 shadow-[0_1px_2px_rgba(10,10,10,0.04)] transition-shadow hover:shadow-md active:cursor-grabbing dark:border-[#2E2E2E] dark:bg-[#202020] ${
         isDragging ? 'opacity-40 shadow-lg' : ''
       }`}
     >
       {/* Row 1: code › category ......... overlapping avatars */}
       <div className="flex items-start justify-between gap-2">
-        <span className="min-w-0 truncate text-[13px] text-slate-500 dark:text-slate-400">
+        <span className="min-w-0 truncate text-[13px] text-[#737373] dark:text-[#A3A3A3]">
           {ticket.code}
-          {ticket.category ? <span className="mx-1 text-slate-300 dark:text-slate-600">›</span> : null}
+          {ticket.category ? <span className="mx-1 text-[#D9D9D9] dark:text-[#2E2E2E]">›</span> : null}
           {ticket.category ? <span>{ticket.category}</span> : null}
         </span>
         <span className="shrink-0">
@@ -66,17 +66,17 @@ export default function TicketCard({
           {PRIORITY_LABELS[ticket.priority]}
         </span>
         {project && (
-          <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <span className="rounded-md border border-[#D9D9D9] bg-white px-2 py-0.5 text-[11px] font-medium text-[#737373] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#A3A3A3]">
             {project.name}
           </span>
         )}
       </div>
       {/* Title */}
-      <h3 className="mt-2 text-[15px] font-semibold leading-snug text-slate-900 dark:text-slate-50">
+      <h3 className="mt-2 text-[15px] font-semibold leading-snug text-[#0A0A0A] dark:text-[#F5F5F5]">
         {ticket.title}
       </h3>
       {/* Bottom row: date alone */}
-      <div className="mt-2.5 text-xs text-slate-400 dark:text-slate-500">{dateLabel}</div>
+      <div className="mt-2.5 text-xs text-[#737373] dark:text-[#A3A3A3]">{dateLabel}</div>
     </article>
   )
 }

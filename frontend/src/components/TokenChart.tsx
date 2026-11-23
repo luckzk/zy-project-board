@@ -25,7 +25,7 @@ export default function TokenChart({ stats }: { stats: TokenStats | null }) {
 
   if (!stats) {
     return (
-      <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-400 dark:border-slate-700 dark:text-slate-500">
+      <div className="rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] p-4 text-sm text-[#737373] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#A3A3A3]">
         暂无 Token 统计数据
       </div>
     )
@@ -33,11 +33,11 @@ export default function TokenChart({ stats }: { stats: TokenStats | null }) {
 
   const up = stats.delta_pct >= 0
   return (
-    <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+    <div className="rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] p-4 dark:border-[#2E2E2E] dark:bg-[#202020]">
       <div className="flex items-baseline justify-between">
         <div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">Token 总消耗</div>
-          <div className="mt-0.5 text-xl font-semibold text-slate-800 dark:text-slate-100">
+          <div className="text-xs text-[#737373] dark:text-[#A3A3A3]">Token 总消耗</div>
+          <div className="mt-0.5 text-xl font-semibold text-[#0A0A0A] dark:text-[#F5F5F5]">
             {formatTokens(stats.total_tokens)}
           </div>
         </div>
@@ -54,14 +54,14 @@ export default function TokenChart({ stats }: { stats: TokenStats | null }) {
       <svg viewBox="0 0 320 110" className="mt-3 w-full" role="img" aria-label="Token 消耗趋势图">
         <defs>
           <linearGradient id="tokenFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#2563eb" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#2563eb" stopOpacity="0" />
+            <stop offset="0%" stopColor="#2476FF" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#2476FF" stopOpacity="0" />
           </linearGradient>
         </defs>
         {areaPath && <path d={areaPath} fill="url(#tokenFill)" />}
-        {linePath && <path d={linePath} fill="none" stroke="#2563eb" strokeWidth="2" strokeLinejoin="round" />}
+        {linePath && <path d={linePath} fill="none" stroke="#2476FF" strokeWidth="2" strokeLinejoin="round" />}
       </svg>
-      <div className="mt-1 flex justify-between text-[11px] text-slate-400 dark:text-slate-500">
+      <div className="mt-1 flex justify-between text-[11px] text-[#737373] dark:text-[#A3A3A3]">
         <span>{points[0]?.date}</span>
         <span>{points[points.length - 1]?.date}</span>
       </div>

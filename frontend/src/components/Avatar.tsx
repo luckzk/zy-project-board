@@ -9,7 +9,7 @@ export function Avatar({ user, size = 24 }: { user: User; size?: number }) {
         title={user.name}
         loading="lazy"
         referrerPolicy="no-referrer"
-        className="shrink-0 rounded-full object-cover ring-2 ring-white dark:ring-slate-900"
+        className="shrink-0 rounded-full object-cover ring-2 ring-white dark:ring-[#202020]"
         style={{ width: size, height: size }}
         onError={(e) => {
           // Fall back to initials if the photo fails to load.
@@ -24,7 +24,7 @@ export function Avatar({ user, size = 24 }: { user: User; size?: number }) {
   return (
     <span
       title={user.name}
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-medium text-white ring-2 ring-white dark:ring-slate-900"
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-medium text-white ring-2 ring-white dark:ring-[#202020]"
       style={{ backgroundColor: user.color, width: size, height: size, fontSize: size * 0.42 }}
     >
       {user.initials}
@@ -36,7 +36,7 @@ function AvatarFallback({ user, size }: { user: User; size: number }) {
   return (
     <span
       title={user.name}
-      className="hidden items-center justify-center rounded-full font-medium text-white ring-2 ring-white dark:ring-slate-900"
+      className="hidden items-center justify-center rounded-full font-medium text-white ring-2 ring-white dark:ring-[#202020]"
       style={{ backgroundColor: user.color, width: size, height: size, fontSize: size * 0.42 }}
     >
       {user.initials}
@@ -56,7 +56,7 @@ export function AvatarStack({ users, max = 3 }: { users: User[]; max?: number })
         </span>
       ))}
       {rest > 0 && (
-        <span className="-ml-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-[10px] font-medium text-slate-600 ring-2 ring-white dark:bg-slate-700 dark:text-slate-300 dark:ring-slate-900">
+        <span className="-ml-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#E5E5E5] text-[10px] font-medium text-[#737373] ring-2 ring-white dark:bg-[#262626] dark:text-[#E5E5E5] dark:ring-[#202020]">
           +{rest}
         </span>
       )}

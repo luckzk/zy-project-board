@@ -1,6 +1,6 @@
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { BoardColumn, Project, Ticket, TicketStatus, User } from '../types'
 import TicketCard from './TicketCard'
 import Icon from './Icon'
@@ -20,46 +20,63 @@ export default function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `column-${column.status}` })
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuClosing, setMenuClosing] = useState(false)
+  const menuTimer = useRef<number | null>(null)
+
+  function closeMenu() {
+    if (!menuOpen) return
+    if (menuTimer.current) window.clearTimeout(menuTimer.current)
+    setMenuClosing(true)
+    menuTimer.current = window.setTimeout(() => {
+      setMenuOpen(false)
+      setMenuClosing(false)
+    }, 150)
+  }
 
   useEffect(() => {
     if (!menuOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false)
+      if (e.key === 'Escape') closeMenu()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuOpen])
 
   return (
     <section
-      className={`flex h-full w-[304px] shrink-0 flex-col rounded-2xl bg-[#eef0f2] p-3 dark:bg-slate-800/60 xl:w-auto xl:min-w-[260px] xl:flex-1 ${
-        isOver ? 'ring-2 ring-blue-400/60' : ''
+      className={`flex h-full w-[304px] shrink-0 flex-col rounded-2xl bg-[#F7F7F7] p-3 dark:bg-[#171717] xl:w-auto xl:min-w-[260px] xl:flex-1 ${
+        isOver ? 'ring-2 ring-[#2476FF]/50' : ''
       }`}
     >
       <header className="flex items-center gap-1 pb-2 pt-0.5">
-        <h2 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{column.label}</h2>
-        <span className="text-[13px] text-slate-400 dark:text-slate-500">
+        <h2 className="text-[15px] font-semibold text-[#0A0A0A] dark:text-[#F5F5F5]">{column.label}</h2>
+        <span className="text-[13px] text-[#737373] dark:text-[#A3A3A3]">
           {column.count}/{column.total}
         </span>
         <span className="flex-1" />
         <span className="relative">
           <button
-            onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-[#737373] hover:bg-[#EBEBEB] hover:text-[#0A0A0A] dark:text-[#A3A3A3] dark:hover:bg-[#262626] dark:hover:text-[#F5F5F5]"
             aria-label={`${column.label} 更多选项`}
           >
             <Icon name="dots" size={16} />
           </button>
           {menuOpen && (
             <>
-              <span className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <span className="absolute right-0 top-7 z-20 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              <span className="fixed inset-0 z-10" onClick={closeMenu} />
+              <span
+                className={`absolute right-0 top-7 z-20 w-36 overflow-hidden rounded-xl border border-[#EBEBEB] bg-white py-1 shadow-lg dark:border-[#2E2E2E] dark:bg-[#202020] ${
+                  menuClosing ? 'anim-pop-out' : 'anim-pop-in'
+                }`}
+              >
                 <button
                   onClick={() => {
-                    setMenuOpen(false)
+                    closeMenu()
                     onAddTicket(column.status)
                   }}
-                  className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  className="block w-full px-3 py-1.5 text-left text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                 >
                   添加票据
                 </button>
@@ -69,7 +86,7 @@ export default function Column({
         </span>
         <button
           onClick={() => onAddTicket(column.status)}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-[#737373] hover:bg-[#EBEBEB] hover:text-[#0A0A0A] dark:text-[#A3A3A3] dark:hover:bg-[#262626] dark:hover:text-[#F5F5F5]"
           aria-label={`在${column.label}添加票据`}
         >
           <Icon name="plus" size={16} />
@@ -91,7 +108,7 @@ export default function Column({
           ))}
         </SortableContext>
         {column.tickets.length === 0 && (
-          <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-300 py-8 text-xs text-slate-400 dark:border-slate-600 dark:text-slate-500">
+          <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-[#D9D9D9] py-8 text-xs text-[#737373] dark:border-[#2E2E2E] dark:text-[#A3A3A3]">
             暂无票据，拖到这里
           </div>
         )}

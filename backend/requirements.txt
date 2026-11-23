@@ -1,3 +1,5 @@
+bcrypt
+PyJWT
 fastapi
 uvicorn[standard]
 sqlalchemy

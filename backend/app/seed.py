@@ -13,16 +13,43 @@ from app.models import Comment, Ticket
 
 USERS = [
     {"id": "u-maya", "name": "Maya Chen", "initials": "MC", "color": "#7c3aed",
+     "email": "maya.chen@zy-board.local", "role": "产品经理",
      "avatar_url": "https://randomuser.me/api/portraits/women/44.jpg"},
     {"id": "u-priya", "name": "Priya Shah", "initials": "PS", "color": "#db2777",
+     "email": "priya.shah@zy-board.local", "role": "设计师",
      "avatar_url": "https://randomuser.me/api/portraits/women/65.jpg"},
     {"id": "u-elif", "name": "Elif Kaya", "initials": "EK", "color": "#0891b2",
+     "email": "elif.kaya@zy-board.local", "role": "前端工程师",
      "avatar_url": "https://randomuser.me/api/portraits/women/68.jpg"},
     {"id": "u-noah", "name": "Noah Williams", "initials": "NW", "color": "#059669",
+     "email": "noah.williams@zy-board.local", "role": "后端工程师",
      "avatar_url": "https://randomuser.me/api/portraits/men/32.jpg"},
     {"id": "u-daniel", "name": "Daniel Kim", "initials": "DK", "color": "#ea580c",
+     "email": "daniel.kim@zy-board.local", "role": "测试工程师",
      "avatar_url": "https://randomuser.me/api/portraits/men/46.jpg"},
+    {"id": "u-sofia", "name": "Sofia Rossi", "initials": "SR", "color": "#0d9488",
+     "email": "sofia.rossi@zy-board.local", "role": "设计师",
+     "avatar_url": "https://randomuser.me/api/portraits/women/12.jpg"},
+    {"id": "u-liam", "name": "Liam Carter", "initials": "LC", "color": "#4d7c0f",
+     "email": "liam.carter@zy-board.local", "role": "前端工程师",
+     "avatar_url": "https://randomuser.me/api/portraits/men/22.jpg"},
+    {"id": "u-ava", "name": "Ava Thompson", "initials": "AT", "color": "#be185d",
+     "email": "ava.thompson@zy-board.local", "role": "产品经理",
+     "avatar_url": "https://randomuser.me/api/portraits/women/33.jpg"},
+    {"id": "u-kenji", "name": "Kenji Tanaka", "initials": "KT", "color": "#b45309",
+     "email": "kenji.tanaka@zy-board.local", "role": "后端工程师",
+     "avatar_url": "https://randomuser.me/api/portraits/men/75.jpg"},
+    {"id": "u-zoe", "name": "Zoe Martin", "initials": "ZM", "color": "#6d28d9",
+     "email": "zoe.martin@zy-board.local", "role": "测试工程师",
+     "avatar_url": "https://randomuser.me/api/portraits/women/90.jpg"},
 ]
+
+# Demo login account seeded on first start (see seed_demo_account).
+DEMO_ACCOUNT = {
+    "name": "演示用户",
+    "email": "demo@zy-board.local",
+    "password": "demo1234",
+}
 
 # Category labels from the original demo, keyed by ticket code.
 CATEGORY_BY_CODE = {
@@ -158,6 +185,57 @@ SEED_COMMENTS = [
         datetime(2026, 9, 14, 17, 45, 0),
     ),
 ]
+
+
+def seed_directory_users(db: Session) -> None:
+    """Insert the 10 seed people into directory_users when the table is empty.
+
+    Runs independently of the ticket seed, so existing DBs (whose tickets
+    table is already populated) still get the directory on upgrade.
+    """
+    from app.models import DirectoryUser
+
+    if db.query(DirectoryUser).count() > 0:
+        return
+    for i, u in enumerate(USERS):
+        db.add(
+            DirectoryUser(
+                id=u["id"],
+                name=u["name"],
+                email=u.get("email", ""),
+                role=u.get("role", ""),
+                avatar_url=u.get("avatar_url", ""),
+                initials=u["initials"],
+                color=u["color"],
+                source="seed",
+                external_id=f"seed-{u['id'][2:]}",
+                active=True,
+                synced_at=None,
+                sort_order=i,
+            )
+        )
+    db.commit()
+
+
+def seed_demo_account(db: Session) -> None:
+    """Create the demo login account when the accounts table is empty."""
+    import bcrypt
+
+    from app.models import Account
+
+    if db.query(Account).count() > 0:
+        return
+    db.add(
+        Account(
+            name=DEMO_ACCOUNT["name"],
+            email=DEMO_ACCOUNT["email"],
+            password_hash=bcrypt.hashpw(
+                DEMO_ACCOUNT["password"].encode("utf-8"), bcrypt.gensalt()
+            ).decode("utf-8"),
+            created_at=datetime.utcnow(),
+        )
+    )
+    db.commit()
 
 
 def seed_if_empty(db: Session) -> None:

@@ -1,6 +1,6 @@
 """zy-project-board MCP server (stdio).
 
-Exposes the zy-project-board REST API as 9 MCP tools. All data access goes
+Exposes the zy-project-board REST API as 10 MCP tools. All data access goes
 through the HTTP API — this server never touches the SQLite file.
 
 Config (environment variables):
@@ -210,6 +210,24 @@ async def list_projects() -> str:
 async def list_users() -> str:
     """List all users."""
     return await _api("GET", "/api/users")
+
+
+@mcp.tool()
+async def sync_users(source: str, users: list[dict]) -> str:
+    """Sync users from an external platform into the directory.
+
+    Upserts keyed by (source, external_id): creates new users, updates
+    changed fields, deactivates users sent with active=false. Idempotent:
+    re-sending the same payload changes nothing. Each user needs
+    external_id and name; email, avatar_url, role and active are optional.
+    Returns {created, updated, deactivated, errors[]}.
+    See docs/user-sync.md for the full interface spec.
+    """
+    if not source or not source.strip():
+        return _err("invalid_argument", "source is required")
+    return await _api(
+        "POST", "/api/users/sync", payload={"source": source, "users": users}
+    )
 
 
 @mcp.tool()

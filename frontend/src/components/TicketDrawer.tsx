@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, formatTicketDate } from '../api'
 import {
   PRIORITY_LABELS,
@@ -47,15 +47,54 @@ export default function TicketDrawer({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [starred, setStarred] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuClosing, setMenuClosing] = useState(false)
   const [copied, setCopied] = useState('')
+
+  // Slide-in from the right edge (300ms ease-out): the drawer mounts first,
+  // then animates in on the next frames; closing slides it back out and
+  // only then tells the parent to clear the ticket id.
+  const [mounted, setMounted] = useState(false)
+  const [visible, setVisible] = useState(false)
+  const closeTimer = useRef<number | null>(null)
+  const menuTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (ticketId != null) {
+      setMounted(true)
+      const raf = requestAnimationFrame(() =>
+        requestAnimationFrame(() => setVisible(true)),
+      )
+      return () => cancelAnimationFrame(raf)
+    }
+    setMounted(false)
+    setVisible(false)
+    return undefined
+  }, [ticketId])
+
+  function handleClose() {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current)
+    setVisible(false)
+    closeTimer.current = window.setTimeout(() => onClose(), 300)
+  }
+
+  function closeMenu() {
+    if (!menuOpen) return
+    if (menuTimer.current) window.clearTimeout(menuTimer.current)
+    setMenuClosing(true)
+    menuTimer.current = window.setTimeout(() => {
+      setMenuOpen(false)
+      setMenuClosing(false)
+    }, 150)
+  }
 
   useEffect(() => {
     if (!menuOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false)
+      if (e.key === 'Escape') closeMenu()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuOpen])
 
   function formatRelative(iso: string): string {
@@ -127,7 +166,7 @@ export default function TicketDrawer({
     if (users.length > 0 && !commentAuthor) setCommentAuthor(users[0].id)
   }, [users, commentAuthor])
 
-  if (ticketId == null) return null
+  if (!mounted) return null
 
   async function patch(patch: Partial<Ticket>) {
     if (!ticket) return
@@ -177,7 +216,7 @@ export default function TicketDrawer({
     try {
       await api.deleteTicket(ticket.id)
       onChanged()
-      onClose()
+      handleClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败')
     } finally {
@@ -193,10 +232,17 @@ export default function TicketDrawer({
 
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[620px] flex-col bg-white shadow-2xl dark:bg-slate-900">
-        <div className="flex items-center gap-1 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-          <span className="min-w-0 flex-1 truncate text-sm text-slate-500 dark:text-slate-400">
+      <div
+        className={`absolute inset-0 bg-black/20 ${visible ? 'anim-fade-in' : 'anim-fade-out'}`}
+        onClick={handleClose}
+      />
+      <aside
+        className={`absolute inset-y-0 right-0 flex w-full max-w-[620px] flex-col bg-white shadow-2xl dark:bg-[#171717] ${
+          visible ? 'anim-drawer-in' : 'anim-drawer-out'
+        }`}
+      >
+        <div className="flex items-center gap-1 border-b border-[#EBEBEB] px-5 py-3 dark:border-[#262626]">
+          <span className="min-w-0 flex-1 truncate text-sm text-[#737373] dark:text-[#A3A3A3]">
             BoardUI 设计任务 <span className="mx-0.5">›</span> {ticket ? ticket.code : '…'}
             {ticket?.category ? (
               <>
@@ -208,8 +254,8 @@ export default function TicketDrawer({
           {copied && <span className="shrink-0 text-xs text-emerald-600">{copied}</span>}
           <button
             onClick={() => setStarred((v) => !v)}
-            className={`flex h-8 w-8 items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 ${
-              starred ? 'text-amber-500' : 'text-slate-400'
+            className={`flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[#F7F7F7] dark:hover:bg-[#262626] ${
+              starred ? 'text-amber-500' : 'text-[#737373]'
             }`}
             aria-label="收藏"
           >
@@ -222,7 +268,7 @@ export default function TicketDrawer({
                 '链接已复制',
               )
             }
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
             aria-label="复制链接"
             title="复制链接"
           >
@@ -230,46 +276,48 @@ export default function TicketDrawer({
           </button>
           <span className="relative">
             <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
               aria-label="更多操作"
             >
               <Icon name="dots" size={18} />
             </button>
             {menuOpen && ticket && (
               <>
-                <span className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <span className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                <span className="fixed inset-0 z-10" onClick={closeMenu} />
+                <span className={`absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg border border-[#E5E5E5] bg-white py-1 shadow-lg dark:border-[#2E2E2E] dark:bg-[#202020] ${
+                  menuClosing ? 'anim-pop-out' : 'anim-pop-in'
+                }`}>
                   <button
                     onClick={() => {
-                      setMenuOpen(false)
+                      closeMenu()
                       setEditing(true)
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="block w-full px-3 py-1.5 text-left text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
                     编辑描述
                   </button>
                   <button
                     onClick={() => {
-                      setMenuOpen(false)
+                      closeMenu()
                       void copyText(ticket.code, '票据 ID 已复制')
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="block w-full px-3 py-1.5 text-left text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
                     复制票据 ID
                   </button>
                   <button
                     onClick={() => {
-                      setMenuOpen(false)
+                      closeMenu()
                       void patch({ status: 'done' })
                     }}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="block w-full px-3 py-1.5 text-left text-sm text-[#262626] hover:bg-[#F7F7F7] dark:text-[#E5E5E5] dark:hover:bg-[#262626]"
                   >
                     标记为已完成
                   </button>
                   <button
                     onClick={() => {
-                      setMenuOpen(false)
+                      closeMenu()
                       setConfirmDelete(true)
                     }}
                     className="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
@@ -281,8 +329,8 @@ export default function TicketDrawer({
             )}
           </span>
           <button
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            onClick={handleClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#737373] hover:bg-[#F7F7F7] dark:hover:bg-[#262626]"
             aria-label="关闭"
           >
             <Icon name="close" size={18} />
@@ -300,7 +348,7 @@ export default function TicketDrawer({
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
-              className="rounded-lg border border-slate-200 px-3 py-1 dark:border-slate-700 dark:text-slate-200"
+              className="rounded-lg border border-[#E5E5E5] px-3 py-1 dark:border-[#2E2E2E] dark:text-[#E5E5E5]"
             >
               取消
             </button>
@@ -308,7 +356,7 @@ export default function TicketDrawer({
         )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {loading && <div className="py-10 text-center text-sm text-slate-400">加载中…</div>}
+          {loading && <div className="py-10 text-center text-sm text-[#737373]">加载中…</div>}
           {error && (
             <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
               {error}
@@ -322,16 +370,16 @@ export default function TicketDrawer({
                   <input
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-lg font-semibold outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-lg font-semibold outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   />
                   {titleError && <p className="mt-1 text-xs text-red-600">{titleError}</p>}
                 </div>
               ) : (
-                <h2 className="text-lg font-semibold leading-snug text-slate-900 dark:text-slate-50">
+                <h2 className="text-lg font-semibold leading-snug text-[#0A0A0A] dark:text-[#F5F5F5]">
                   {ticket.title}
                 </h2>
               )}
-              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2 text-xs text-[#737373] dark:text-[#A3A3A3]">
                 <span>创建者</span>
                 {creator && <Avatar user={creator} size={20} />}
                 <span>{creator?.name ?? '—'}</span>
@@ -348,12 +396,12 @@ export default function TicketDrawer({
               {/* Fields */}
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
-                  <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">状态</span>
+                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">状态</span>
                   <select
                     value={ticket.status}
                     disabled={saving}
                     onChange={(e) => void patch({ status: e.target.value as TicketStatus })}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   >
                     {(Object.keys(STATUS_LABELS) as TicketStatus[]).map((s) => (
                       <option key={s} value={s}>
@@ -363,12 +411,12 @@ export default function TicketDrawer({
                   </select>
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">优先级</span>
+                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">优先级</span>
                   <select
                     value={ticket.priority}
                     disabled={saving}
                     onChange={(e) => void patch({ priority: e.target.value as Priority })}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   >
                     {(Object.keys(PRIORITY_LABELS) as Priority[]).map((p) => (
                       <option key={p} value={p}>
@@ -378,12 +426,12 @@ export default function TicketDrawer({
                   </select>
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">项目</span>
+                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">项目</span>
                   <select
                     value={ticket.project_id}
                     disabled={saving}
                     onChange={(e) => void patch({ project_id: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   >
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -393,7 +441,7 @@ export default function TicketDrawer({
                   </select>
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">分类</span>
+                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">分类</span>
                   <input
                     defaultValue={ticket.category}
                     key={ticket.id + (ticket.category ?? '')}
@@ -405,11 +453,11 @@ export default function TicketDrawer({
                       if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                     }}
                     placeholder="例如：座席切换"
-                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   />
                 </label>
                 <div>
-                  <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">负责人</span>
+                  <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">负责人</span>
                   <AvatarStack users={assignees} />
                 </div>
               </div>
@@ -417,7 +465,7 @@ export default function TicketDrawer({
               {/* Token chart — right after the fields so it is visible
                   without scrolling deep into the drawer. */}
               <div>
-                <span className="mb-2 block text-xs text-slate-500 dark:text-slate-400">
+                <span className="mb-2 block text-xs text-[#737373] dark:text-[#A3A3A3]">
                   Token 消耗 · {project?.name ?? ''}
                 </span>
                 <TokenChart stats={tokenStats} />
@@ -425,7 +473,7 @@ export default function TicketDrawer({
 
               {/* Assignees multi-select */}
               <div>
-                <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                <span className="mb-1 block text-xs text-[#737373] dark:text-[#A3A3A3]">
                   指派给（可多选）
                 </span>
                 <div className="flex flex-wrap gap-1.5">
@@ -443,8 +491,8 @@ export default function TicketDrawer({
                         }}
                         className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs ${
                           on
-                            ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                            : 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'
+                            ? 'border-[#2476FF] bg-[#EAF1FF] text-[#193CB8] dark:bg-[#2476FF]/20 dark:text-[#9CC3FF]'
+                            : 'border-[#E5E5E5] text-[#737373] dark:border-[#2E2E2E] dark:text-[#D4D4D4]'
                         }`}
                       >
                         <Avatar user={u} size={18} />
@@ -458,11 +506,11 @@ export default function TicketDrawer({
               {/* Description */}
               <div>
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">描述</span>
+                  <span className="text-xs text-[#737373] dark:text-[#A3A3A3]">描述</span>
                   {!editing && (
                     <button
                       onClick={() => setEditing(true)}
-                      className="text-xs text-blue-600 hover:underline"
+                      className="text-xs text-[#2476FF] hover:underline"
                     >
                       编辑
                     </button>
@@ -474,13 +522,13 @@ export default function TicketDrawer({
                       value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
                       rows={5}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                     />
                     <div className="mt-2 flex gap-2">
                       <button
                         onClick={saveEdits}
                         disabled={saving}
-                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                        className="rounded-lg bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] px-3 py-1.5 text-sm font-medium text-white hover:brightness-95 disabled:opacity-50"
                       >
                         保存
                       </button>
@@ -491,14 +539,14 @@ export default function TicketDrawer({
                           setEditDesc(ticket.description)
                           setTitleError('')
                         }}
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:text-slate-200"
+                        className="rounded-lg border border-[#E5E5E5] px-3 py-1.5 text-sm dark:border-[#2E2E2E] dark:text-[#E5E5E5]"
                       >
                         取消
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#262626] dark:text-[#E5E5E5]">
                     {ticket.description || '暂无描述'}
                   </p>
                 )}
@@ -506,12 +554,12 @@ export default function TicketDrawer({
 
               {/* Resources */}
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 dark:text-slate-400">资源</span>
+                <span className="text-xs text-[#737373] dark:text-[#A3A3A3]">资源</span>
                 <a
                   href="https://www.figma.com"
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300"
+                  className="rounded-full bg-[#EAF1FF] px-2.5 py-1 text-xs font-medium text-[#2476FF] hover:bg-[#DCE8FF] dark:bg-[#2476FF]/20 dark:text-[#9CC3FF]"
                 >
                   figma.com
                 </a>
@@ -519,7 +567,7 @@ export default function TicketDrawer({
 
               {/* Comments */}
               <div>
-                <span className="mb-2 block text-xs text-slate-500 dark:text-slate-400">
+                <span className="mb-2 block text-xs text-[#737373] dark:text-[#A3A3A3]">
                   评论（{comments.length}）
                 </span>
                 <div className="space-y-3">
@@ -530,31 +578,31 @@ export default function TicketDrawer({
                         {author ? (
                           <Avatar user={author} size={28} />
                         ) : (
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-300 text-xs text-white">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#E5E5E5] text-xs text-white">
                             ?
                           </span>
                         )}
                         <div className="min-w-0">
-                          <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                          <div className="text-xs font-medium text-[#262626] dark:text-[#E5E5E5]">
                             {c.author_name}
-                            <span className="ml-2 font-normal text-slate-400">
+                            <span className="ml-2 font-normal text-[#737373]">
                               {formatRelative(c.created_at)}
                             </span>
                           </div>
-                          <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{c.body}</p>
+                          <p className="mt-0.5 text-sm text-[#262626] dark:text-[#E5E5E5]">{c.body}</p>
                         </div>
                       </div>
                     )
                   })}
                   {comments.length === 0 && (
-                    <p className="text-sm text-slate-400">暂无评论，来写第一条吧。</p>
+                    <p className="text-sm text-[#737373]">暂无评论，来写第一条吧。</p>
                   )}
                 </div>
-                <div className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <div className="mt-3 rounded-xl border border-[#E5E5E5] bg-[#F7F7F7] p-3 dark:border-[#2E2E2E] dark:bg-[#202020]">
                   <select
                     value={commentAuthor}
                     onChange={(e) => setCommentAuthor(e.target.value)}
-                    className="mb-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    className="mb-2 w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   >
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>
@@ -567,13 +615,13 @@ export default function TicketDrawer({
                     onChange={(e) => setCommentBody(e.target.value)}
                     rows={3}
                     placeholder="写下评论…"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm outline-none focus:border-[#2476FF] dark:border-[#2E2E2E] dark:bg-[#202020] dark:text-[#F5F5F5]"
                   />
                   <div className="mt-2 text-right">
                     <button
                       onClick={() => void publishComment()}
                       disabled={!commentBody.trim() || saving}
-                      className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                      className="rounded-lg bg-[linear-gradient(180deg,#2678FF,#1F6EFF)] px-4 py-1.5 text-sm font-medium text-white hover:brightness-95 disabled:opacity-40"
                     >
                       发布
                     </button>

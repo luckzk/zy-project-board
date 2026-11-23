@@ -2,23 +2,33 @@
 
 Run:  uvicorn app.main:app --port 8001
 Auth:  writes require header ``X-API-Key`` matching env ``API_KEY``
-       (default ``dev-api-key-change-me``); GETs are public.
+       (default ``dev-api-key-change-me``) OR a JWT from /api/auth/login
+       as ``Authorization: Bearer <token>``; GETs are public.
+       JWT secret comes from env ``SECRET_KEY`` (dev fallback only).
 """
 import json
 import os
+import re
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
+import bcrypt
+import jwt
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db, init_db, SessionLocal
-from app.models import Comment, Ticket
+from app.models import Account, Comment, DirectoryUser, Ticket
 from app.schemas import (
+    AuthLogin,
+    AuthOut,
+    AuthRegister,
+    AuthUserOut,
     BoardColumn,
     BoardOut,
+    ChangePassword,
     CommentCreate,
     CommentOut,
     ProjectOut,
@@ -27,11 +37,24 @@ from app.schemas import (
     TicketUpdate,
     TokenPoint,
     TokenStatsOut,
+    UpdateMe,
     UserOut,
+    UserSyncError,
+    UserSyncIn,
+    UserSyncOut,
 )
-from app.seed import PROJECTS, USERS, USER_NAMES, seed_if_empty
+from app.seed import (
+    PROJECTS,
+    USER_NAMES,
+    seed_demo_account,
+    seed_directory_users,
+    seed_if_empty,
+)
 
 API_KEY = os.environ.get("API_KEY", "dev-api-key-change-me")
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_DAYS = 7
 
 STATUSES = ["backlog", "todo", "in_progress", "review", "done"]
 STATUS_LABELS = {
@@ -58,6 +81,8 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_if_empty(db)
+        seed_directory_users(db)
+        seed_demo_account(db)
     finally:
         db.close()
     yield
@@ -78,6 +103,90 @@ def require_api_key(x_api_key: str | None = Header(default=None)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="invalid api key")
     return x_api_key
+
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _check_password(password: str, password_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except ValueError:
+        return False
+
+
+def _make_token(account: Account) -> str:
+    now = datetime.utcnow()
+    payload = {
+        "sub": str(account.id),
+        "email": account.email,
+        "iat": now,
+        "exp": now + timedelta(days=JWT_EXPIRE_DAYS),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def _account_out(a: Account) -> AuthUserOut:
+    return AuthUserOut(id=a.id, name=a.name, email=a.email, created_at=a.created_at)
+
+
+def get_current_account(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> Account:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    token = authorization[len("Bearer "):].strip()
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        account_id = int(payload.get("sub", ""))
+    except (jwt.PyJWTError, ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="invalid token")
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if account is None:
+        raise HTTPException(status_code=401, detail="invalid token")
+    return account
+
+
+def require_write_auth(
+    x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Writes accept either the X-API-Key (MCP / scripts) or a JWT."""
+    if x_api_key is not None and x_api_key == API_KEY:
+        return {"type": "api_key"}
+    if authorization and authorization.startswith("Bearer "):
+        try:
+            get_current_account(authorization, db)
+        except HTTPException:
+            raise HTTPException(status_code=401, detail="invalid token")
+        return {"type": "jwt"}
+    raise HTTPException(status_code=401, detail="invalid api key or token")
+
+
+def user_out(u: DirectoryUser) -> UserOut:
+    return UserOut(
+        id=u.id,
+        name=u.name,
+        initials=u.initials,
+        color=u.color,
+        avatar_url=u.avatar_url or "",
+        email=u.email or "",
+        role=u.role or "",
+        source=u.source,
+        external_id=u.external_id or "",
+        active=bool(u.active),
+        synced_at=u.synced_at,
+    )
+
+
+def _user_display_name(db: Session, user_id: str) -> str:
+    row = db.query(DirectoryUser).filter(DirectoryUser.id == user_id).first()
+    if row is not None:
+        return row.name
+    return USER_NAMES.get(user_id, user_id)
 
 
 def ticket_out(t: Ticket) -> TicketOut:
@@ -127,9 +236,206 @@ def health():
     return {"status": "ok"}
 
 
+# ---- Auth: register / login / me / update name / change password ----
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@app.post("/api/auth/register", response_model=AuthOut, status_code=201)
+def register(payload: AuthRegister, db: Session = Depends(get_db)):
+    name = (payload.name or "").strip()
+    email = (payload.email or "").strip().lower()
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="invalid email")
+    if len(payload.password or "") < 6:
+        raise HTTPException(status_code=422, detail="password must be at least 6 characters")
+    if db.query(Account).filter(Account.email == email).first() is not None:
+        raise HTTPException(status_code=400, detail="email already registered")
+    account = Account(
+        name=name,
+        email=email,
+        password_hash=_hash_password(payload.password),
+        created_at=datetime.utcnow(),
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return AuthOut(token=_make_token(account), user=_account_out(account))
+
+
+@app.post("/api/auth/login", response_model=AuthOut)
+def login(payload: AuthLogin, db: Session = Depends(get_db)):
+    email = (payload.email or "").strip().lower()
+    account = db.query(Account).filter(Account.email == email).first()
+    if account is None or not _check_password(payload.password or "", account.password_hash):
+        raise HTTPException(status_code=401, detail="invalid email or password")
+    return AuthOut(token=_make_token(account), user=_account_out(account))
+
+
+@app.get("/api/auth/me", response_model=AuthUserOut)
+def me(account: Account = Depends(get_current_account)):
+    return _account_out(account)
+
+
+@app.patch("/api/auth/me", response_model=AuthUserOut)
+def update_me(
+    payload: UpdateMe,
+    db: Session = Depends(get_db),
+    account: Account = Depends(get_current_account),
+):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name is required")
+    if len(name) > 100:
+        raise HTTPException(status_code=422, detail="name is too long")
+    account.name = name
+    db.commit()
+    db.refresh(account)
+    return _account_out(account)
+
+
+@app.post("/api/auth/change-password")
+def change_password(
+    payload: ChangePassword,
+    db: Session = Depends(get_db),
+    account: Account = Depends(get_current_account),
+):
+    if not _check_password(payload.current_password or "", account.password_hash):
+        raise HTTPException(status_code=401, detail="current password is incorrect")
+    if len(payload.new_password or "") < 6:
+        raise HTTPException(status_code=422, detail="new password must be at least 6 characters")
+    account.password_hash = _hash_password(payload.new_password)
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/users", response_model=list[UserOut])
-def list_users():
-    return USERS
+def list_users(
+    db: Session = Depends(get_db),
+    source: str | None = Query(default=None),
+    active: bool | None = Query(default=None),
+):
+    query = db.query(DirectoryUser).order_by(DirectoryUser.sort_order, DirectoryUser.id)
+    if source:
+        query = query.filter(DirectoryUser.source == source)
+    if active is not None:
+        query = query.filter(DirectoryUser.active == active)
+    return [user_out(u) for u in query.all()]
+
+
+@app.get("/api/users/{user_id}", response_model=UserOut)
+def get_user(user_id: str, db: Session = Depends(get_db)):
+    u = db.query(DirectoryUser).filter(DirectoryUser.id == user_id).first()
+    if u is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    return user_out(u)
+
+
+@app.delete("/api/users/{user_id}", status_code=204)
+def delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _auth=Depends(require_write_auth),
+):
+    """Remove a directory user (seed or synced). Ticket assignments that
+    reference the id keep the id and render a fallback in the UI."""
+    u = db.query(DirectoryUser).filter(DirectoryUser.id == user_id).first()
+    if u is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    db.delete(u)
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.post("/api/users/sync", response_model=UserSyncOut)
+def sync_users(
+    payload: UserSyncIn,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Universal user-sync interface: upsert external users keyed by
+    (source, external_id). Idempotent — re-sending the same payload changes
+    nothing and reports zero counts. See docs/user-sync.md."""
+    source = (payload.source or "").strip()
+    if not source:
+        raise HTTPException(status_code=422, detail="source is required")
+    created = updated = deactivated = 0
+    errors = []
+    max_order = db.query(func.max(DirectoryUser.sort_order)).scalar() or 0
+    for i, item in enumerate(payload.users):
+        ext = (item.external_id or "").strip()
+        name = (item.name or "").strip()
+        if not ext or not name:
+            errors.append(
+                UserSyncError(
+                    index=i,
+                    external_id=ext or None,
+                    error="external_id and name are required",
+                )
+            )
+            continue
+        existing = (
+            db.query(DirectoryUser)
+            .filter(DirectoryUser.source == source, DirectoryUser.external_id == ext)
+            .first()
+        )
+        now = datetime.utcnow()
+        if existing is None:
+            max_order += 1
+            initials = "".join(w[0] for w in re.split(r"[\s\-]+", name) if w)[:2].upper() or "?"
+            new_id = f"u-{source}-{ext}"[:64]
+            suffix = 2
+            while (
+                db.query(DirectoryUser).filter(DirectoryUser.id == new_id).first()
+                is not None
+            ):
+                new_id = f"u-{source}-{ext}-{suffix}"[:64]
+                suffix += 1
+            db.add(
+                DirectoryUser(
+                    id=new_id,
+                    name=name,
+                    email=(item.email or "").strip(),
+                    role=(item.role or "").strip(),
+                    avatar_url=(item.avatar_url or "").strip(),
+                    initials=initials,
+                    color="#737373",
+                    source=source,
+                    external_id=ext,
+                    active=item.active if item.active is not None else True,
+                    synced_at=now,
+                    sort_order=max_order,
+                )
+            )
+            created += 1
+            continue
+        changed = False
+        for field, value in {
+            "name": name,
+            "email": (item.email or "").strip() if item.email is not None else None,
+            "role": (item.role or "").strip() if item.role is not None else None,
+            "avatar_url": (item.avatar_url or "").strip()
+            if item.avatar_url is not None
+            else None,
+        }.items():
+            if value is not None and getattr(existing, field) != value:
+                setattr(existing, field, value)
+                changed = True
+        if item.active is not None and bool(existing.active) != bool(item.active):
+            existing.active = bool(item.active)
+            changed = True
+            if not item.active:
+                deactivated += 1
+        if changed:
+            existing.synced_at = now
+            if not (item.active is not None and not item.active):
+                updated += 1
+    db.commit()
+    return UserSyncOut(
+        created=created, updated=updated, deactivated=deactivated, errors=errors
+    )
 
 
 @app.get("/api/projects", response_model=list[ProjectOut])
@@ -214,7 +520,7 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
 def create_ticket(
     payload: TicketCreate,
     db: Session = Depends(get_db),
-    _key: str = Depends(require_api_key),
+    _key: str = Depends(require_write_auth),
 ):
     title = (payload.title or "").strip()
     if not title:
@@ -252,7 +558,7 @@ def update_ticket(
     ticket_id: int,
     payload: TicketUpdate,
     db: Session = Depends(get_db),
-    _key: str = Depends(require_api_key),
+    _key: str = Depends(require_write_auth),
 ):
     t = get_ticket_or_404(db, ticket_id)
     data = payload.model_dump(exclude_unset=True)
@@ -295,7 +601,7 @@ def update_ticket(
 def delete_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),
-    _key: str = Depends(require_api_key),
+    _key: str = Depends(require_write_auth),
 ):
     t = get_ticket_or_404(db, ticket_id)
     db.query(Comment).filter(Comment.ticket_id == ticket_id).delete()
@@ -331,7 +637,7 @@ def create_comment(
     ticket_id: int,
     payload: CommentCreate,
     db: Session = Depends(get_db),
-    _key: str = Depends(require_api_key),
+    _key: str = Depends(require_write_auth),
 ):
     get_ticket_or_404(db, ticket_id)
     body = (payload.body or "").strip()
@@ -341,7 +647,7 @@ def create_comment(
     c = Comment(
         ticket_id=ticket_id,
         author_id=author_id,
-        author_name=USER_NAMES.get(author_id, author_id),
+        author_name=_user_display_name(db, author_id),
         body=body,
         created_at=datetime.utcnow(),
     )

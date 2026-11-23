@@ -7,6 +7,24 @@ export interface User {
   initials: string
   color: string
   avatar_url?: string
+  email?: string
+  role?: string
+  source?: string
+  external_id?: string
+  active?: boolean
+  synced_at?: string | null
+}
+
+export interface AuthUser {
+  id: number
+  name: string
+  email: string
+  created_at: string
+}
+
+export interface AuthResponse {
+  token: string
+  user: AuthUser
 }
 
 export interface Project {

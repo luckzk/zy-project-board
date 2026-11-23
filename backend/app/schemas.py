@@ -11,6 +11,71 @@ class UserOut(BaseModel):
     initials: str
     color: str
     avatar_url: str = ""
+    email: str = ""
+    role: str = ""
+    source: str = "seed"
+    external_id: str = ""
+    active: bool = True
+    synced_at: Optional[datetime] = None
+
+
+class AuthRegister(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class AuthLogin(BaseModel):
+    email: str
+    password: str
+
+
+class AuthUserOut(BaseModel):
+    id: int
+    name: str
+    email: str
+    created_at: datetime
+
+
+class AuthOut(BaseModel):
+    token: str
+    user: AuthUserOut
+
+
+class UpdateMe(BaseModel):
+    name: str
+
+
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class UserSyncItem(BaseModel):
+    external_id: str
+    name: str
+    email: Optional[str] = None
+    avatar_url: Optional[str] = None
+    role: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class UserSyncIn(BaseModel):
+    source: str
+    users: List[UserSyncItem] = []
+
+
+class UserSyncError(BaseModel):
+    index: int
+    external_id: Optional[str] = None
+    error: str
+
+
+class UserSyncOut(BaseModel):
+    created: int
+    updated: int
+    deactivated: int
+    errors: List[UserSyncError] = []
 
 
 class ProjectOut(BaseModel):

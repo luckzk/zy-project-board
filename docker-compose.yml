@@ -9,6 +9,7 @@ services:
       - "8001:8001"
     environment:
       - API_KEY=${API_KEY:?API_KEY 未设置，请复制 .env.example 为 .env 并填写}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
     volumes:
       - ./backend/data:/app/data
 

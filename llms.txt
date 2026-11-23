@@ -17,7 +17,8 @@
 - `AGENTS.md` — Agent 操作规则（先读）
 - `docs/ai-usage.md` — REST / MCP 使用示例
 - `backend/main.py` — 后端入口（FastAPI 应用）
-- `backend/openapi.json` — OpenAPI 规范（以此为准）
+- `openapi.json` — OpenAPI 规范（以此为准）
+- `docs/user-sync.md` — 通用用户同步接口（飞书/钉钉/企业微信等用户同步）
 - `frontend/src/` — 前端源码
 - `frontend/nginx.conf` — 前端容器 nginx 配置
 - `mcp-server/server.py` — MCP Server（stdio）
@@ -26,8 +27,10 @@
 ## API
 
 - 本地后端基地址：`http://localhost:8001`
-- OpenAPI：`http://localhost:8001/openapi.json`（或仓库内 `backend/openapi.json`）
-- 鉴权：写操作（POST / PATCH / DELETE）带请求头 `X-API-Key: <API_KEY>`（默认开发值见 `.env.example`）；GET 请求公开，无需鉴权
+- OpenAPI：`http://localhost:8001/openapi.json`（或仓库内 `openapi.json`）
+- 鉴权：写操作（POST / PATCH / DELETE）带请求头 `X-API-Key: <API_KEY>`（默认开发值见 `.env.example`）**或**登录后的 `Authorization: Bearer <JWT>`；GET 请求公开，无需鉴权。用户同步接口（`POST /api/users/sync`）只接受 `X-API-Key`。
+- 注册/登录：`POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/me`、`PATCH /api/auth/me`、`POST /api/auth/change-password`；演示账号 `demo@zy-board.local` / `demo1234`。
+- 人员目录：`GET /api/users?source=&active=`；通用同步接口见 `docs/user-sync.md`，MCP 工具为 `sync_users`。
 
 ## 规则（必须遵守）
 
@@ -36,6 +39,7 @@
    - status：`backlog` / `todo` / `in_progress` / `review` / `done`
    - priority：`low` / `medium` / `high` / `urgent`
 3. 项目只用已存在的 `project_id`，绝不自造。
-4. 工单有 `category` 字段（分类，如“座席切换”），创建/更新时可传；用户有 `avatar_url`（randomuser.me 真实头像）。
+4. 工单有 `category` 字段（分类，如“座席切换”），创建/更新时可传；用户有 `avatar_url`（randomuser.me 真实头像）、`email`、`role`、`source`、`external_id`、`active` 字段。
 5. 前端必须调真实 API，禁止 mock 数据。
-5. 移动工单 = `PATCH /api/tickets/{id}`，同时传 `status` + `position`。
+6. 移动工单 = `PATCH /api/tickets/{id}`，同时传 `status` + `position`。
+7. 颜色与动效：浅色页背景 `#FFFFFF`、侧边栏/列 `#F7F7F7`、卡片 `#FFFFFF`、主蓝 `#2476FF`（渐变 `#1F6EFF→#2678FF`）；抽屉从右侧滑入 300ms、弹窗淡入+缩放 200ms、对话框淡入+缩放 200ms；不使用 toast 提示（反馈均为行内：复制按钮变“✓ 已复制”、星标变黄）。

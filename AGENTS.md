@@ -13,7 +13,7 @@
    - status 只用：`backlog` / `todo` / `in_progress` / `review` / `done`
    - priority 只用：`low` / `medium` / `high` / `urgent`
 4. **绝不自造项目**：只用 `GET /api/projects` 返回的真实 `project_id`。
-5. 写操作（POST / PATCH / DELETE）带请求头 `X-API-Key: <API_KEY>`；GET 请求公开，无需鉴权。
+5. 写操作（POST / PATCH / DELETE）带请求头 `X-API-Key: <API_KEY>` **或**登录后的 `Authorization: Bearer <JWT>`；GET 请求公开，无需鉴权。用户同步接口（`POST /api/users/sync`）只接受 `X-API-Key`。
 
 ## 前端规则
 
@@ -30,4 +30,4 @@
 
 - 不碰 `backend/data/` 下的任何文件。
 - 不向仓库提交 `.env`、数据库文件或密钥。
-- 不擅自扩大 v1 范围（多用户、登录、其他模板页均 out of scope）。
+- 不擅自扩大 v1 范围（其他模板页均 out of scope；注册/登录与设置页已在 round 3 加入，不再是 out of scope）。

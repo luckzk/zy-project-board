@@ -1,4 +1,6 @@
 import type {
+  AuthResponse,
+  AuthUser,
   BoardColumn,
   Comment,
   CreateTicketInput,
@@ -20,6 +22,25 @@ export const API_BASE =
 
 const API_KEY = (import.meta.env.VITE_API_KEY as string | undefined) || 'dev-api-key-change-me'
 
+const TOKEN_KEY = 'zy-board-token'
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // storage unavailable; session still works in memory for this page load
+  }
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -29,10 +50,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken()
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   })
@@ -51,10 +74,36 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function writeHeaders(): Record<string, string> {
+  // Prefer the logged-in JWT when present; fall back to the build-time
+  // API key (used by MCP / scripts, and when nobody is logged in).
+  if (getToken()) return {}
   return { 'X-API-Key': API_KEY }
 }
 
 export const api = {
+  // ---- auth ----
+  register: (name: string, email: string, password: string) =>
+    request<AuthResponse>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    }),
+  login: (email: string, password: string) =>
+    request<AuthResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  me: () => request<AuthUser>('/api/auth/me'),
+  updateMe: (name: string) =>
+    request<AuthUser>('/api/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ ok: boolean }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+  // ---- board ----
   getUsers: () => request<User[]>('/api/users'),
   getProjects: () => request<Project[]>('/api/projects'),
   getBoard: () => request<{ columns: BoardColumn[] }>('/api/board'),

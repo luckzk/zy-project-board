@@ -18,19 +18,69 @@ body {
 /* Thin scrollbars for the kanban columns */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(203 213 225) transparent;
+  scrollbar-color: rgb(217 217 217) transparent;
 }
 .dark * {
-  scrollbar-color: rgb(51 65 85) transparent;
+  scrollbar-color: rgb(46 46 46) transparent;
 }
 *::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgb(203 213 225);
+  background: rgb(217 217 217);
   border-radius: 9999px;
 }
 .dark *::-webkit-scrollbar-thumb {
-  background: rgb(51 65 85);
+  background: rgb(46 46 46);
 }
+
+/* ---- Entrance animations (measured from the original) ----
+ * Drawer: slide in from the right edge, 300ms ease-out.
+ * Popovers: fade + scale 95%->100% + translateY, 200ms ease-out.
+ * Dialog: fade + scale 95%->100% + slight upward move, 200ms.
+ * Overlays: plain fade, 200ms.
+ * Theme switch itself is instant: no colour transitions anywhere.
+ */
+
+@keyframes drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes drawer-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes pop-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-4px) scale(0.95); }
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dialog-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(8px) scale(0.95); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.anim-drawer-in { animation: drawer-in 300ms ease-out both; }
+.anim-drawer-out { animation: drawer-out 300ms ease-out both; }
+.anim-pop-in { animation: pop-in 200ms ease-out both; }
+.anim-pop-out { animation: pop-out 150ms ease-in both; }
+.anim-dialog-in { animation: dialog-in 200ms ease-out both; }
+.anim-dialog-out { animation: dialog-out 150ms ease-in both; }
+.anim-fade-in { animation: fade-in 200ms ease-out both; }
+.anim-fade-out { animation: fade-out 200ms ease-out both; }
