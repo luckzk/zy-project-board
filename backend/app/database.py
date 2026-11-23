@@ -36,3 +36,18 @@ def init_db():
     from app import models  # noqa: F401  (register models on Base)
 
     Base.metadata.create_all(bind=engine)
+    # Lightweight migration for DBs created before Ticket.category existed:
+    # create_all() never adds a column to an existing table.
+    from sqlalchemy import inspect, text
+
+    with engine.begin() as conn:
+        cols = {c["name"] for c in inspect(conn).get_columns("tickets")}
+        if "category" not in cols:
+            conn.execute(text("ALTER TABLE tickets ADD COLUMN category VARCHAR(128) NOT NULL DEFAULT ''"))
+            from app.seed import CATEGORY_BY_CODE
+
+            for code, category in CATEGORY_BY_CODE.items():
+                conn.execute(
+                    text("UPDATE tickets SET category = :category WHERE code = :code AND (category IS NULL OR category = '')"),
+                    {"category": category, "code": code},
+                )

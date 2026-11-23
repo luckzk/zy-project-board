@@ -36,5 +36,6 @@
    - status：`backlog` / `todo` / `in_progress` / `review` / `done`
    - priority：`low` / `medium` / `high` / `urgent`
 3. 项目只用已存在的 `project_id`，绝不自造。
-4. 前端必须调真实 API，禁止 mock 数据。
+4. 工单有 `category` 字段（分类，如“座席切换”），创建/更新时可传；用户有 `avatar_url`（randomuser.me 真实头像）。
+5. 前端必须调真实 API，禁止 mock 数据。
 5. 移动工单 = `PATCH /api/tickets/{id}`，同时传 `status` + `position`。

@@ -12,12 +12,34 @@ from sqlalchemy.orm import Session
 from app.models import Comment, Ticket
 
 USERS = [
-    {"id": "u-maya", "name": "Maya Chen", "initials": "MC", "color": "#7c3aed"},
-    {"id": "u-priya", "name": "Priya Shah", "initials": "PS", "color": "#db2777"},
-    {"id": "u-elif", "name": "Elif Kaya", "initials": "EK", "color": "#0891b2"},
-    {"id": "u-noah", "name": "Noah Williams", "initials": "NW", "color": "#059669"},
-    {"id": "u-daniel", "name": "Daniel Kim", "initials": "DK", "color": "#ea580c"},
+    {"id": "u-maya", "name": "Maya Chen", "initials": "MC", "color": "#7c3aed",
+     "avatar_url": "https://randomuser.me/api/portraits/women/44.jpg"},
+    {"id": "u-priya", "name": "Priya Shah", "initials": "PS", "color": "#db2777",
+     "avatar_url": "https://randomuser.me/api/portraits/women/65.jpg"},
+    {"id": "u-elif", "name": "Elif Kaya", "initials": "EK", "color": "#0891b2",
+     "avatar_url": "https://randomuser.me/api/portraits/women/68.jpg"},
+    {"id": "u-noah", "name": "Noah Williams", "initials": "NW", "color": "#059669",
+     "avatar_url": "https://randomuser.me/api/portraits/men/32.jpg"},
+    {"id": "u-daniel", "name": "Daniel Kim", "initials": "DK", "color": "#ea580c",
+     "avatar_url": "https://randomuser.me/api/portraits/men/46.jpg"},
 ]
+
+# Category labels from the original demo, keyed by ticket code.
+CATEGORY_BY_CODE = {
+    "DS-38": "座席切换",
+    "FE-86": "项目看板",
+    "BE-23": "活动API",
+    "DS-34": "基础规范",
+    "FE-82": "对话输入框",
+    "BE-19": "使用API",
+    "FE-79": "智能体任务进度",
+    "DS-31": "深色模式",
+    "FE-76": "问卷",
+    "DS-27": "头像",
+    "FE-71": "工作室画布",
+    "BE-16": "登记处",
+    "DS-25": "运动",
+}
 
 USER_NAMES = {u["id"]: u["name"] for u in USERS}
 
@@ -150,6 +172,7 @@ def seed_if_empty(db: Session) -> None:
         db.add(
             Ticket(
                 code=code,
+                category=CATEGORY_BY_CODE.get(code, ""),
                 title=title,
                 description=desc,
                 status=status,

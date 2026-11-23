@@ -14,17 +14,20 @@ export default function NewTicketDialog({
   open,
   users,
   projects,
+  initialStatus,
   onClose,
   onCreated,
 }: {
   open: boolean
   users: User[]
   projects: Project[]
+  initialStatus?: TicketStatus | null
   onClose: () => void
   onCreated: () => void
 }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [category, setCategory] = useState('')
   const [status, setStatus] = useState<TicketStatus>('todo')
   const [priority, setPriority] = useState<Priority>('medium')
   const [projectId, setProjectId] = useState('')
@@ -39,11 +42,16 @@ export default function NewTicketDialog({
     if (open && projects.length > 0 && !projectId) setProjectId(projects[0].id)
   }, [open, projects, projectId])
 
+  useEffect(() => {
+    if (open && initialStatus) setStatus(initialStatus)
+  }, [open, initialStatus])
+
   if (!open) return null
 
   function resetForm() {
     setTitle('')
     setDescription('')
+    setCategory('')
     setTitleError('')
     setError(null)
   }
@@ -60,6 +68,7 @@ export default function NewTicketDialog({
       await api.createTicket({
         title: title.trim(),
         description,
+        category: category.trim() || undefined,
         status,
         priority,
         project_id: projectId || undefined,
@@ -118,6 +127,18 @@ export default function NewTicketDialog({
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             />
             {titleError && <p className="mt-1 text-xs text-red-600">{titleError}</p>}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+              分类
+            </label>
+            <input
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="例如：座席切换"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            />
           </div>
 
           <div>

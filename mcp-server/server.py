@@ -110,6 +110,7 @@ async def get_ticket(ticket_id: int) -> str:
 async def create_ticket(
     title: str,
     description: str | None = None,
+    category: str | None = None,
     status: str | None = None,
     priority: str | None = None,
     project_id: str | None = None,
@@ -126,6 +127,7 @@ async def create_ticket(
     payload = {"title": title}
     for key, value in {
         "description": description,
+        "category": category,
         "status": status,
         "priority": priority,
         "project_id": project_id,
@@ -142,6 +144,7 @@ async def update_ticket(
     ticket_id: int,
     title: str | None = None,
     description: str | None = None,
+    category: str | None = None,
     status: str | None = None,
     priority: str | None = None,
     project_id: str | None = None,
@@ -158,6 +161,7 @@ async def update_ticket(
         for k, v in {
             "title": title,
             "description": description,
+            "category": category,
             "status": status,
             "priority": priority,
             "project_id": project_id,

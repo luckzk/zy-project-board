@@ -10,6 +10,7 @@ class UserOut(BaseModel):
     name: str
     initials: str
     color: str
+    avatar_url: str = ""
 
 
 class ProjectOut(BaseModel):
@@ -20,6 +21,7 @@ class ProjectOut(BaseModel):
 class TicketBase(BaseModel):
     title: str
     description: str = ""
+    category: str = ""
     status: str = "todo"
     priority: str = "low"
     project_id: str = "p-boardui"
@@ -34,6 +36,7 @@ class TicketCreate(TicketBase):
 class TicketUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    category: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
     project_id: Optional[str] = None
@@ -44,6 +47,7 @@ class TicketUpdate(BaseModel):
 class TicketOut(BaseModel):
     id: int
     code: str
+    category: str = ""
     title: str
     description: str
     status: str

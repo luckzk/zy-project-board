@@ -84,6 +84,7 @@ def ticket_out(t: Ticket) -> TicketOut:
     return TicketOut(
         id=t.id,
         code=t.code,
+        category=t.category or "",
         title=t.title,
         description=t.description,
         status=t.status,
@@ -228,6 +229,7 @@ def create_ticket(
     now = datetime.utcnow()
     t = Ticket(
         code=next_code(db, prefix),
+        category=payload.category or "",
         title=title,
         description=payload.description or "",
         status=payload.status,
@@ -265,6 +267,8 @@ def update_ticket(
         t.title = title
     if "description" in data:
         t.description = data["description"] or ""
+    if "category" in data:
+        t.category = data["category"] or ""
     if "status" in data:
         new_status = data["status"]
         if new_status != t.status:

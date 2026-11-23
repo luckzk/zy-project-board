@@ -786,6 +786,11 @@
             "title": "Description",
             "default": ""
           },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": ""
+          },
           "status": {
             "type": "string",
             "title": "Status",
@@ -836,6 +841,11 @@
           "code": {
             "type": "string",
             "title": "Code"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": ""
           },
           "title": {
             "type": "string",
@@ -930,6 +940,17 @@
               }
             ],
             "title": "Description"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
           },
           "status": {
             "anyOf": [
@@ -1059,6 +1080,11 @@
           "color": {
             "type": "string",
             "title": "Color"
+          },
+          "avatar_url": {
+            "type": "string",
+            "title": "Avatar Url",
+            "default": ""
           }
         },
         "type": "object",

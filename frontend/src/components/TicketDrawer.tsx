@@ -44,6 +44,36 @@ export default function TicketDrawer({
   const [commentBody, setCommentBody] = useState('')
   const [commentAuthor, setCommentAuthor] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [starred, setStarred] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [copied, setCopied] = useState('')
+
+  function formatRelative(iso: string): string {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ''
+    const mins = Math.max(0, Math.floor((Date.now() - d.getTime()) / 60000))
+    if (mins < 60) return mins <= 1 ? '刚刚' : `${mins}分钟前`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}小时前`
+    const days = Math.floor(hours / 24)
+    if (days < 7) return `${days}天前`
+    return `${d.getMonth() + 1}月${d.getDate()}日`
+  }
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    setCopied(label)
+    window.setTimeout(() => setCopied(''), 2000)
+  }
 
   useEffect(() => {
     if (ticketId == null) {
@@ -154,10 +184,91 @@ export default function TicketDrawer({
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[480px] flex-col bg-white shadow-2xl dark:bg-slate-900">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-          <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
-            {ticket ? ticket.code : '加载中…'}
+      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[620px] flex-col bg-white shadow-2xl dark:bg-slate-900">
+        <div className="flex items-center gap-1 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+          <span className="min-w-0 flex-1 truncate text-sm text-slate-500 dark:text-slate-400">
+            BoardUI 设计任务 <span className="mx-0.5">›</span> {ticket ? ticket.code : '…'}
+            {ticket?.category ? (
+              <>
+                {' '}
+                <span className="mx-0.5">›</span> {ticket.category}
+              </>
+            ) : null}
+          </span>
+          {copied && <span className="shrink-0 text-xs text-emerald-600">{copied}</span>}
+          <button
+            onClick={() => setStarred((v) => !v)}
+            className={`rounded-lg px-2 py-1 text-base leading-none hover:bg-slate-100 dark:hover:bg-slate-800 ${
+              starred ? 'text-amber-500' : 'text-slate-400'
+            }`}
+            aria-label="收藏"
+          >
+            {starred ? '★' : '☆'}
+          </button>
+          <button
+            onClick={() =>
+              void copyText(
+                `${window.location.origin}/#${ticket?.code ?? ''}`,
+                '链接已复制',
+              )
+            }
+            className="rounded-lg px-2 py-1 text-base leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label="复制链接"
+            title="复制链接"
+          >
+            ⧉
+          </button>
+          <span className="relative">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="rounded-lg px-2 py-1 text-base leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              aria-label="更多操作"
+            >
+              …
+            </button>
+            {menuOpen && ticket && (
+              <>
+                <span className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <span className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setEditing(true)
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    编辑描述
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void copyText(ticket.code, '票据 ID 已复制')
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    复制票据 ID
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void patch({ status: 'done' })
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    标记为已完成
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setConfirmDelete(true)
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                  >
+                    删除票据
+                  </button>
+                </span>
+              </>
+            )}
           </span>
           <button
             onClick={onClose}
@@ -167,6 +278,24 @@ export default function TicketDrawer({
             ×
           </button>
         </div>
+        {confirmDelete && ticket && (
+          <div className="flex items-center gap-2 border-b border-red-100 bg-red-50 px-5 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            <span className="flex-1">确定删除这张票吗？</span>
+            <button
+              onClick={() => void deleteTicket()}
+              disabled={saving}
+              className="rounded-lg bg-red-600 px-3 py-1 text-white disabled:opacity-50"
+            >
+              确认删除
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="rounded-lg border border-slate-200 px-3 py-1 dark:border-slate-700 dark:text-slate-200"
+            >
+              取消
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {loading && <div className="py-10 text-center text-sm text-slate-400">加载中…</div>}
@@ -252,6 +381,22 @@ export default function TicketDrawer({
                       </option>
                     ))}
                   </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">分类</span>
+                  <input
+                    defaultValue={ticket.category}
+                    key={ticket.id + (ticket.category ?? '')}
+                    disabled={saving}
+                    onBlur={(e) => {
+                      if (e.target.value !== ticket.category) void patch({ category: e.target.value })
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    }}
+                    placeholder="例如：座席切换"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  />
                 </label>
                 <div>
                   <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">负责人</span>
@@ -340,6 +485,19 @@ export default function TicketDrawer({
                 )}
               </div>
 
+              {/* Resources */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 dark:text-slate-400">资源</span>
+                <a
+                  href="https://www.figma.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300"
+                >
+                  figma.com
+                </a>
+              </div>
+
               {/* Token chart */}
               <div>
                 <span className="mb-2 block text-xs text-slate-500 dark:text-slate-400">
@@ -369,7 +527,7 @@ export default function TicketDrawer({
                           <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
                             {c.author_name}
                             <span className="ml-2 font-normal text-slate-400">
-                              {new Date(c.created_at).toLocaleString('zh-Hans')}
+                              {formatRelative(c.created_at)}
                             </span>
                           </div>
                           <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{c.body}</p>
@@ -412,34 +570,6 @@ export default function TicketDrawer({
                 </div>
               </div>
 
-              {/* Delete */}
-              <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
-                {confirmDelete ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-red-600">确定删除这张票吗？</span>
-                    <button
-                      onClick={() => void deleteTicket()}
-                      disabled={saving}
-                      className="rounded-lg bg-red-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-                    >
-                      确认删除
-                    </button>
-                    <button
-                      onClick={() => setConfirmDelete(false)}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:text-slate-200"
-                    >
-                      取消
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDelete(true)}
-                    className="text-sm text-red-600 hover:underline"
-                  >
-                    删除此票
-                  </button>
-                )}
-              </div>
             </div>
           )}
         </div>

@@ -6,6 +6,7 @@ export interface User {
   name: string
   initials: string
   color: string
+  avatar_url?: string
 }
 
 export interface Project {
@@ -16,6 +17,7 @@ export interface Project {
 export interface Ticket {
   id: number
   code: string
+  category: string
   title: string
   description: string
   status: TicketStatus
@@ -60,6 +62,7 @@ export interface TokenStats {
 export interface CreateTicketInput {
   title: string
   description?: string
+  category?: string
   status?: TicketStatus
   priority?: Priority
   project_id?: string
@@ -70,6 +73,7 @@ export interface CreateTicketInput {
 export interface UpdateTicketInput {
   title?: string
   description?: string
+  category?: string
   status?: TicketStatus
   priority?: Priority
   project_id?: string

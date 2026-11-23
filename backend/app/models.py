@@ -9,6 +9,7 @@ class Ticket(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(32), unique=True, nullable=False, index=True)
+    category = Column(String(128), nullable=False, default="")
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=False, default="")
     status = Column(String(32), nullable=False, default="todo", index=True)

@@ -8,7 +8,7 @@ const PRIORITY_BADGE: Record<Priority, string> = {
   low: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
   medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
   high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300',
-  urgent: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
+  urgent: 'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300',
 }
 
 export default function TicketCard({
@@ -43,35 +43,40 @@ export default function TicketCard({
       {...attributes}
       {...listeners}
       onClick={() => onClick(ticket)}
-      className={`cursor-grab touch-none rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing dark:border-slate-700 dark:bg-slate-800 ${
+      className={`cursor-grab touch-none rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-shadow hover:shadow-md active:cursor-grabbing dark:border-slate-700 dark:bg-slate-800 ${
         isDragging ? 'opacity-40 shadow-lg' : ''
       }`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{ticket.code}</span>
+      {/* Row 1: code › category ......... overlapping avatars */}
+      <div className="flex items-start justify-between gap-2">
+        <span className="min-w-0 truncate text-[13px] text-slate-500 dark:text-slate-400">
+          {ticket.code}
+          {ticket.category ? <span className="mx-1 text-slate-300 dark:text-slate-600">›</span> : null}
+          {ticket.category ? <span>{ticket.category}</span> : null}
+        </span>
+        <span className="shrink-0">
+          <AvatarStack users={assignees} />
+        </span>
+      </div>
+      {/* Row 2: priority + project badges */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <span
+          className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${PRIORITY_BADGE[ticket.priority]}`}
+        >
+          {PRIORITY_LABELS[ticket.priority]}
+        </span>
         {project && (
-          <span className="truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+          <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {project.name}
           </span>
         )}
       </div>
-      <h3 className="mt-1.5 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
+      {/* Title */}
+      <h3 className="mt-2 text-[15px] font-semibold leading-snug text-slate-900 dark:text-slate-50">
         {ticket.title}
       </h3>
-      <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${PRIORITY_BADGE[ticket.priority]}`}
-        >
-          {PRIORITY_LABELS[ticket.priority]}
-        </span>
-        <span className="text-[11px] text-slate-400 dark:text-slate-500">{dateLabel}</span>
-      </div>
-      <div className="mt-2.5 flex items-center justify-between">
-        <AvatarStack users={assignees} />
-        <span className="text-[11px] text-slate-400 dark:text-slate-500">
-          {assignees.map((u) => u.name.split(' ')[0]).join(', ')}
-        </span>
-      </div>
+      {/* Bottom row: date alone */}
+      <div className="mt-2.5 text-xs text-slate-400 dark:text-slate-500">{dateLabel}</div>
     </article>
   )
 }

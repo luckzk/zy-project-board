@@ -20,6 +20,7 @@ export default function Board({
   projects,
   onCardClick,
   onMove,
+  onAddTicket,
 }: {
   columns: BoardColumn[]
   users: User[]
@@ -28,6 +29,7 @@ export default function Board({
   /** Optimistically move a ticket in local state; when `commit` is true the
    * parent persists the move via PATCH and refetches. */
   onMove: (ticketId: number, toStatus: TicketStatus, toIndex: number, commit?: boolean) => void
+  onAddTicket: (status: TicketStatus) => void
 }) {
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null)
   const sensors = useSensors(
@@ -99,7 +101,7 @@ export default function Board({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveTicket(null)}
     >
-      <div className="flex h-full items-start gap-3 overflow-x-auto pb-2">
+      <div className="flex h-full items-start gap-4 overflow-x-auto pb-2 xl:overflow-visible">
         {columns.map((column) => (
           <Column
             key={column.status}
@@ -107,6 +109,7 @@ export default function Board({
             users={users}
             projects={projects}
             onCardClick={onCardClick}
+            onAddTicket={onAddTicket}
           />
         ))}
       </div>
